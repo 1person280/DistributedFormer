@@ -26,9 +26,10 @@ def test_kvstack_query_and_persistence(tmp_path):
 
 def test_spiking_unit_fires_spikes():
     unit = SpikingUnit("u")
+    strong = np.ones(16) * 5.0  # 强输入保证确定性发放
     spikes = sum(
         1 for _ in range(200)
-        if unit.step(np.random.randn(16), np.zeros(16), 1.0)
+        if unit.step(strong, np.zeros(16), 1.0)
     )
     assert 0 < spikes <= 200
 
