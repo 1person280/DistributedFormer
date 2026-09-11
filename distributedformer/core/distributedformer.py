@@ -167,8 +167,37 @@ class KVStack:
                 normalized = score / total_score
                 retrieved = entry.value_state * self.value_w * normalized
                 results.append((entry_id, retrieved, normalized))
-            
+
             return results
+
+    def retrieve(self, query_signal: np.ndarray, top_k: int = 3,
+                 scan_limit: int = 4096) -> np.ndarray:
+        """
+        主计算路径用的注意力检索: 返回 dim 维聚合检索向量
+
+        对最近写入的 scan_limit 条记录做相似度打分 (超过限额时丢弃更旧的,
+        dict 保持插入序), 聚合 top_k 条 value 向量后 tanh 归一化。
+        空堆返回零向量。
+        """
+        if not self.entries:
+            return np.zeros(self.dim)
+        with self.lock:
+            items = list(self.entries.items())[-scan_limit:]
+        scores = []
+        for entry_id, entry in items:
+            score = entry.compute_score(query_signal, self.key_w)
+            scores.append((entry_id, entry, score))
+        scores.sort(key=lambda x: x[2], reverse=True)
+        top = scores[:top_k]
+        total = sum(s[2] for s in top) + 1e-8
+        agg = np.zeros(self.dim)
+        for _, entry, score in top:
+            agg += entry.value_state * self.value_w * (score / total)
+        with self.lock:
+            for _, entry, _ in top:
+                entry.access_count += 1
+                entry.last_access = time.time()
+        return np.tanh(agg)
     
     def _evict_lru(self) -> None:
         """LRU淘汰最久未访问的条目"""
@@ -257,20 +286,27 @@ class SpikingUnit:
         self.state = np.zeros(dim)
         self.fatigue = 0.0    # 疲劳度 (0~1, 越高越难发射)
         self.refractory = 0    # 不应期计数器
+        # 感受野投影 (v0.5.0): 固定随机投影替代均值池化,
+        # crc32(unit_id) 做种子保证跨进程可复现
+        self._receptive = None
         
         # ═══════════════════════════════════════════════════════════════
         # 16个标量参数
         # ═══════════════════════════════════════════════════════════════
-        self.w_in       = np.random.randn() * 0.1                 # 1. 输入权重
-        self.b_in       = np.random.randn() * 0.05                # 2. 输入偏置
+        # v0.5.0 配平: 原初始化中 w_global~0.5 的恒定调制项比输入路径
+        # (w_in~0.1 × 投影~0.1) 大一个数量级, 输入信号被完全淹没,
+        # 状态与输入几乎无关 (训练方法学未验证的根因)。
+        # 现令输入路径与调制项量级匹配, 调制只做调制。
+        self.w_in       = np.random.randn() * 1.0                 # 1. 输入权重
+        self.b_in       = np.random.randn() * 0.1                 # 2. 输入偏置
         self.w_state    = np.random.randn() * 0.1                 # 3. 状态反馈权重
         self.w_out      = np.random.randn() * 0.1                 # 4. 输出权重
         self.b_out      = np.random.randn() * 0.05                # 5. 输出偏置
-        self.w_attn     = np.random.randn() * 0.1                 # 6. 注意力权重
+        self.w_attn     = np.random.randn() * 0.5                 # 6. 注意力权重
         self.b_attn     = np.random.randn() * 0.05                # 7. 注意力偏置
         self.decay      = 0.9 + np.random.random() * 0.09         # 8. 状态衰减 (0.9~0.99)
         self.gain       = max(0.5, 1.0 + np.random.randn() * 0.3) # 9. 增益
-        self.w_global   = 0.5 + np.random.randn() * 0.1           # 10. 全局调制权重
+        self.w_global   = 0.1 + np.random.randn() * 0.05          # 10. 全局调制权重 (调制而非主导)
         self.threshold  = 0.5 + np.random.random() * 0.3           # 11. 发射阈值 (0.5~0.8)
         self.refractory_period = 2.0 + np.random.random() * 3.0    # 12. 不应期长度
         self.fatigue_rate = 0.05 + np.random.random() * 0.05       # 13. 疲劳积累率
@@ -418,8 +454,13 @@ class SpikingUnit:
             self.state *= self.decay  # 仅衰减
             return None
         
-        # 输入门控 (input_gated = gain * tanh(w_in * mean(input) + b_in))
-        mean_input = np.mean(raw_input) if raw_input is not None else 0.0
+        # 输入门控 (v0.5.0 感受野投影: 单元只"看到"自己固定的随机投影)
+        if self._receptive is None:
+            import zlib
+            seed = zlib.crc32(self.unit_id.encode("utf-8"))
+            self._receptive = np.random.RandomState(seed).randn(self.dim) / np.sqrt(self.dim)
+        eff_input = float(self._receptive @ raw_input) if raw_input is not None else 0.0
+        mean_input = eff_input
         input_gated = self.gain * np.tanh(self.w_in * mean_input + self.b_in)
         
         # 注意力检索 (使用均值，标量权重)
@@ -534,6 +575,9 @@ class FractalLayer:
         if self.N == 0:
             return
         self.dim = units[0].dim
+        # 感受野投影矩阵 (v0.5.0): 每单元一个固定的随机投影向量,
+        # 替代全局均值池化, 保留输入分布信息 (惰性构建, 种子取自层ID)
+        self._receptive = None
         self._vec_state = np.zeros((self.N, self.dim))
         self._vec_threshold = np.zeros(self.N)
         self._vec_fatigue = np.zeros(self.N)
@@ -626,13 +670,21 @@ class FractalLayer:
         
         active = self._vec_refractory == 0
         input_signal = layer_input[:self.dim] if len(layer_input) >= self.dim else layer_input
-        attn_retrieval = np.zeros(self.dim)
-        
-        # 标量权重计算: 使用输入/状态的均值
-        mean_input = np.mean(input_signal)
+        # KV 堆注意力检索真实接入主计算路径 (v0.5.0):
+        # 以本层输入为查询, 检索全局 KV 堆得到 dim 维向量
+        attn_retrieval = global_kv.retrieve(input_signal)
+
+        # 感受野投影 (v0.5.0): 每单元用固定随机投影代替全局均值,
+        # 单元间输入产生差异, 保留分布信息
+        if self._receptive is None:
+            import zlib
+            seed = zlib.crc32(self.layer_id.encode("utf-8"))
+            rng = np.random.RandomState(seed)
+            self._receptive = rng.randn(self.N, self.dim) / np.sqrt(self.dim)
+        proj_input = self._receptive @ input_signal  # (N,)
         mean_attn = np.mean(attn_retrieval)
         
-        input_gated = self._vec_gain * np.tanh(self._vec_w_in * mean_input + self._vec_b_in)
+        input_gated = self._vec_gain * np.tanh(self._vec_w_in * proj_input + self._vec_b_in)
         attn_contrib = self._vec_w_attn * mean_attn + self._vec_b_attn
         state_feedback = self._vec_w_state * np.mean(self._vec_state, axis=1)
         modulation = global_modulation * self._vec_w_global
@@ -745,13 +797,14 @@ class InputModule:
         # image: 2D 数组 (灰度), 确定性 4×4 平均池化
         return self.encoder.encode_image(np.asarray(raw, dtype=float))
 
-    def step(self, raw: Any, modulation: float = 1.0) -> List[SpikeMessage]:
-        """编码并单步执行本模块的所有单元"""
+    def step(self, raw: Any, modulation: float = 1.0,
+             attn: Optional[np.ndarray] = None) -> List[SpikeMessage]:
+        """编码并单步执行本模块的所有单元 (attn: KV 检索向量)"""
         signal = self.encode(raw)
-        zeros = np.zeros(self.dim)
+        attn_vec = attn if attn is not None else np.zeros(self.dim)
         spikes = []
         for unit in self.units:
-            spike = unit.step(signal, zeros, modulation)
+            spike = unit.step(signal, attn_vec, modulation)
             if spike:
                 spikes.append(spike)
         self.last_spikes = spikes
@@ -780,11 +833,12 @@ class OutputModule:
         self.units = [SpikingUnit(f"output_U{i}", dim) for i in range(n_units)]
         self.last_spikes: List[SpikeMessage] = []
 
-    def step(self, signal: np.ndarray, modulation: float = 1.0) -> List[SpikeMessage]:
-        zeros = np.zeros(self.dim)
+    def step(self, signal: np.ndarray, modulation: float = 1.0,
+             attn: Optional[np.ndarray] = None) -> List[SpikeMessage]:
+        attn_vec = attn if attn is not None else np.zeros(self.dim)
         spikes = []
         for unit in self.units:
-            spike = unit.step(signal, zeros, modulation)
+            spike = unit.step(signal, attn_vec, modulation)
             if spike:
                 spike.source_agent_id = "output"
                 spikes.append(spike)
@@ -854,9 +908,10 @@ class CubeFace:
         self.last_spikes: List[SpikeMessage] = []
 
     def step(self, raw: Any, kv_stack: "KVStack", modulation: float = 1.0,
-             training_mode: bool = False) -> List[SpikeMessage]:
-        """端口编码 → 皮层计算 (含侧向输入), 返回皮层脉冲"""
-        self.port.step(raw, modulation)
+             training_mode: bool = False,
+             attn: Optional[np.ndarray] = None) -> List[SpikeMessage]:
+        """端口编码 → 皮层计算 (含侧向输入), 返回皮层脉冲 (attn: KV 检索)"""
+        self.port.step(raw, modulation, attn)
         port_pattern = self.port.get_pattern()
         face_input = np.tanh(port_pattern + self.inbox)
         spikes = self.cortex.step(face_input, kv_stack, modulation, training_mode)
@@ -1020,17 +1075,22 @@ class CubeGPT:
                 f"未知输入模态 {sorted(unknown)}, 已启用: {list(self.faces)}"
             )
 
+        # KV 注意力检索 (v0.5.0 接入主路径): 以上一拍融合输入为查询
+        attn = self.kv_stack.retrieve(
+            getattr(self, "_last_input", np.zeros(self.dim))
+        )
+
         # 1. 各面独立计算 (端口编码 + 皮层 + 收取环形棱传入的邻面脉冲)
         face_spikes: Dict[str, List[SpikeMessage]] = {}
         for name, face in self.faces.items():
             raw = inputs.get(name)
             if raw is not None:
-                spikes = face.step(raw, self.kv_stack, self.global_modulation, self.training_mode)
+                spikes = face.step(raw, self.kv_stack, self.global_modulation, self.training_mode, attn)
             else:
                 # 无外部输入的面仍消费侧向脉冲 (持续思考)
                 spikes = face.step(
                     np.zeros(self.dim), self.kv_stack,
-                    self.global_modulation, self.training_mode
+                    self.global_modulation, self.training_mode, attn
                 ) if np.any(face.inbox) else []
             face_spikes[name] = spikes or []
 
@@ -1045,7 +1105,8 @@ class CubeGPT:
             contrib = self.faces[name].collect_outgoing()
             fused += 0.5 * contrib
         head_input = np.tanh(fused)
-        output_spikes = self.output_module.step(head_input, self.global_modulation)
+        output_spikes = self.output_module.step(head_input, self.global_modulation, attn)
+        self._last_input = head_input
 
         # 4. KV 堆写入 (非训练模式)
         if not self.training_mode:
@@ -1258,6 +1319,11 @@ class DistributedFormer:
                 f"例如 {{'numeric': 1.5, 'text': '...'}}; 收到 {type(inputs).__name__}"
             )
 
+        # KV 注意力检索 (v0.5.0 接入主路径): 以上一拍输入为查询
+        attn = self.kv_stack.retrieve(
+            getattr(self, "_last_input", np.zeros(self.dim))
+        )
+
         # 1. 各输入模块独立处理 (编码 + 单元步进)
         module_patterns = {}
         for name, raw in inputs.items():
@@ -1266,7 +1332,7 @@ class DistributedFormer:
                     f"未知输入模态 {name!r}, 已启用: {list(self.input_modules)}"
                 )
             module = self.input_modules[name]
-            module.step(raw, self.global_modulation)
+            module.step(raw, self.global_modulation, attn)
             pattern = module.get_pattern()
             if np.linalg.norm(pattern) > 0:
                 module_patterns[name] = pattern
@@ -1293,7 +1359,8 @@ class DistributedFormer:
                 layer_input = np.tanh(layer_input)  # 归一化
 
         # 4. 输出模块处理
-        output_spikes = self.output_module.step(layer_input, self.global_modulation)
+        output_spikes = self.output_module.step(layer_input, self.global_modulation, attn)
+        self._last_input = layer_input
 
         # 5. KV堆更新 (仅在非训练模式下)
         if not self.training_mode:

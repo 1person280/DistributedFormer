@@ -1,0 +1,64 @@
+{
+  "experiment": "R1_readout_validation",
+  "date": "2026-09-11",
+  "n_seeds": 5,
+  "samples_per_class": 80,
+  "val_acc_mean": 0.6475,
+  "val_acc_std": 0.04769696007084726,
+  "val_acc_min": 0.5875,
+  "val_acc_max": 0.7,
+  "random_baseline": 0.25,
+  "beats_random_all_seeds": true,
+  "results": [
+    {
+      "seed": 0,
+      "samples_per_class": 80,
+      "train_accuracy": 0.9791666666666666,
+      "val_accuracy": 0.7,
+      "random_baseline": 0.25,
+      "majority_baseline": 0.26666666666666666,
+      "beats_random": true,
+      "extract_seconds": 4.214794874191284
+    },
+    {
+      "seed": 1,
+      "samples_per_class": 80,
+      "train_accuracy": 0.9833333333333333,
+      "val_accuracy": 0.6,
+      "random_baseline": 0.25,
+      "majority_baseline": 0.25833333333333336,
+      "beats_random": true,
+      "extract_seconds": 5.276906728744507
+    },
+    {
+      "seed": 2,
+      "samples_per_class": 80,
+      "train_accuracy": 0.9833333333333333,
+      "val_accuracy": 0.65,
+      "random_baseline": 0.25,
+      "majority_baseline": 0.2708333333333333,
+      "beats_random": true,
+      "extract_seconds": 4.800121784210205
+    },
+    {
+      "seed": 3,
+      "samples_per_class": 80,
+      "train_accuracy": 0.9583333333333334,
+      "val_accuracy": 0.5875,
+      "random_baseline": 0.25,
+      "majority_baseline": 0.2625,
+      "beats_random": true,
+      "extract_seconds": 4.301933288574219
+    },
+    {
+      "seed": 4,
+      "samples_per_class": 80,
+      "train_accuracy": 0.9583333333333334,
+      "val_accuracy": 0.7,
+      "random_baseline": 0.25,
+      "majority_baseline": 0.26666666666666666,
+      "beats_random": true,
+      "extract_seconds": 4.263087034225464
+    }
+  ]
+}

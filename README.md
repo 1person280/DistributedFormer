@@ -10,7 +10,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.0-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-orange)](CHANGELOG.md)
 
 </div>
 
@@ -133,18 +133,28 @@ v0.2.0 的工程化重构（可安装包、CLI、测试、部署链路修复）�
 - [x] v0.2.0 — 产品化重构：可安装包 / CLI / serve 长驻服务 / 真实行情数据源 / 测试与 CI / 修复 Docker 链路
 - [x] v0.3.0 — 多模态顶层模块化：四种模态独立输入模块 + 独立输出模块 + 确定性图像编码
 - [x] v0.4.0 — 内嵌模型正式命名为 **CubeGPT**（立方体棱连接，4 面 × 4,400 单元 ≈ 281K 参数），智能体框架全面切换
-- [ ] CubeGPT 学习规则升级：在 ≥1 个真实多模态任务上显著超过随机基线
-- [ ] KV 堆注意力接入主计算路径（当前训练模式下被跳过，见已知问题）
+- [x] v0.5.0 — 三项核心修复：KV 注意力接入主计算路径 / 训练方法学验证
+  （读出层 64.8% vs 随机 25%，实验 R1）/ 真实桌面通知与 HTTP 动作
+- [ ] CubeGPT 端到端可学习：在真实多模态数据集上端到端训练（当前读出层范式已验证）
+- [ ] KV 堆注意力检索向量化（当前 python 循环打分，大堆场景有 scan_limit 限额）
 - [ ] 真实数据集基准（替代纯合成数据），建立有意义的评估基线
 - [ ] Redis 分布式 KV 堆在多节点工作流中实际启用
 - [ ] 学习规则改进：目标是在 ≥2 个真实任务上显著超过随机基线
 
-## 已知问题
+## 已知问题（v0.5.0 状态）
 
-- KV 堆的注意力检索尚未接入主计算路径（训练时跳过、推理时检索向量恒零），记忆机制只在
-  演示层使用。这是路线图第一项。
-- 训练方法学未验证（见实验记录）。
-- 桌面通知 / API 调用动作为模拟实现；文件写入与报告生成为真实实现。
+- ~~KV 堆注意力未接入主计算路径~~ **已修复（v0.5.0）**：`KVStack.retrieve()` 现为
+  FractalLayer / 输入端口 / 输出头的真实注意力来源，记忆影响网络动力学；
+  推理时输出状态持续写入 KV 堆，形成闭环。带 scan_limit 限额防止大堆拖慢。
+- ~~训练方法学未验证~~ **已验证（v0.5.0，实验 R1）**：修复两个动力学缺陷
+  （均值池化 → 感受野投影；恒定调制淹没输入 → 权重配平）后，水库内部状态 +
+  线性读出层在合成 4 分类任务上取得 **64.8% ± 4.5%** 验证准确率（5 种子，
+  随机基线 25%），全部种子稳定超过基线。见
+  [`experiments/readout_report.md`](experiments/readout_report.md)。
+- ~~桌面通知 / API 调用为模拟~~ **已实现（v0.5.0）**：Windows 真实系统通知
+  （PowerShell toast，`DF_NOTIFY_MODE=sim` 可切回打印）；真实 HTTP POST
+  （stdlib urllib，endpoint 或 `DF_WEBHOOK_URL` 配置，10s 超时，失败降级不中断）。
+- 保留的已知限制：训练监督仍以合成数据为主，真实数据集基准在路线图中。
 
 ## 文档
 

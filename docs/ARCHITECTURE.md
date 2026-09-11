@@ -51,7 +51,7 @@ fatigue_rate  recovery_rate  spontaneous_rate  w_lateral
 
 ```
 state(t+1) = (gain·tanh(w_in·mean(input)+b_in)      # 输入门控
-            + w_attn·mean(attn) + b_attn             # KV 检索 (见已知问题)
+            + w_attn·mean(attn) + b_attn             # KV 检索 (v0.5.0 起为真实检索)
             + w_state·mean(state)                    # 状态反馈
             + w_global·global_modulation) · decay    # 全局节律
             + 0.1·state

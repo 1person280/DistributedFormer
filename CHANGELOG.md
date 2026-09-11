@@ -1,5 +1,34 @@
 # 更新日志
 
+## v0.5.0 (2026-09-11)
+
+修复 README "已知问题" 的全部三项:
+
+### 1. KV 堆注意力接入主计算路径
+- 新增 `KVStack.retrieve()`: 聚合 top-k 检索向量, tanh 归一化, 带 scan_limit 限额
+- FractalLayer / 输入端口单元 / 输出头单元的 `attn` 输入全部改为真实检索结果
+  (原先恒为零向量); DistributedFormer 与 CubeGPT 双路径生效
+- 推理模式输出状态持续写入 KV 堆, 记忆 → 注意力形成闭环
+
+### 2. 训练方法学验证 (实验 R1)
+定位并修复了历史消融停留在随机水平的两个动力学根因:
+- **均值池化瓶颈**: 所有单元接收同一 mean(input) 标量 → 改为每单元固定随机
+  感受野投影 (crc32 种子, 跨进程可复现)
+- **调制淹没输入**: w_global≈0.5 的恒定加性调制比输入路径大一个数量级 →
+  配平为 w_global≈0.1
+- 新增 `training/readout.py` (reservoir 读出层范式) 与
+  `experiments/readout_validation.py`: 5 种子验证集准确率
+  **64.8% ± 4.5%**, 全部超过随机基线 25% (报告: experiments/readout_report.md)
+
+### 3. 真实桌面通知与 HTTP 动作
+- `_do_notification`: Windows 真实系统通知 (PowerShell 气泡/toast),
+  `DF_NOTIFY_MODE=sim` 回退打印; 非 Windows 打印
+- `_do_api_call`: 真实 HTTP POST (stdlib urllib, 10s 超时), endpoint 或
+  `DF_WEBHOOK_URL` 配置, 失败降级不中断工作流
+
+### 质量
+- 测试 36 项全绿 (新增注意力闭环 / 检索限额 / API mock / 通知模拟等 6 项)
+
 ## v0.4.0 (2026-09-11)
 
 内嵌模型正式命名为 **CubeGPT** (cube = 立方体棱连接方式, GPT = 致敬 ChatGPT):

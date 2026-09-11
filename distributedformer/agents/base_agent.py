@@ -5,6 +5,7 @@
 
 import numpy as np
 import time
+import subprocess
 import threading
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Callable, Any, Tuple
@@ -534,37 +535,100 @@ class ActionAgent(BaseSpikeAgent):
             return {"status": "error", "type": "file_write", "error": str(e)}
     
     def _do_notification(self, action: Dict) -> Dict:
-        """执行桌面通知 (模拟)"""
+        """执行桌面通知 (v0.5.0: Windows 真实系统通知)
+
+        Windows 上默认通过 PowerShell 气泡通知真实弹出 (DF_NOTIFY_MODE=sim
+        可切回打印模拟); 非 Windows 平台打印到 stdout。
+        """
+        import os
+        import platform
         title = action.get("title", "脉冲通知")
         message = action.get("message", "检测到脉冲信号")
         urgency = action.get("urgency", "normal")
-        
-        # 实际生产环境应调用系统通知API
-        print(f"\n[通知] {title} [{urgency.upper()}]")
-        print(f"  {message}")
-        print(f"  强度: {action.get('strength', 0):.2f}")
-        
-        return {
-            "status": "success", 
+        mode = os.environ.get("DF_NOTIFY_MODE",
+                              "real" if platform.system() == "Windows" else "sim")
+
+        result = {
+            "status": "success",
             "type": "desktop_notification",
             "title": title,
-            "message": message
+            "message": message,
+            "mode": mode,
         }
-    
+
+        if mode != "real":
+            print(f"\n[通知-模拟] {title} [{urgency.upper()}]")
+            print(f"  {message}")
+            print(f"  强度: {action.get('strength', 0):.2f}")
+            return result
+
+        # Windows 真实通知: System.Windows.Forms 气泡 (Win10/11 映射为 toast)
+        script = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "Add-Type -AssemblyName System.Drawing;"
+            "$n = New-Object System.Windows.Forms.NotifyIcon;"
+            "$n.Icon = [System.Drawing.SystemIcons]::Information;"
+            "$n.Visible = $true;"
+            "$n.ShowBalloonTip(5000, '" + title.replace("'", "''") + "', '"
+            + message.replace("'", "''") + "', 'Info');"
+            "Start-Sleep -Seconds 6;$n.Dispose()"
+        )
+        try:
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script],
+                capture_output=True, timeout=15,
+            )
+            result["delivered"] = proc.returncode == 0
+            if proc.returncode != 0:
+                result["error"] = proc.stderr.decode(errors="replace")[:200]
+        except Exception as e:  # 通知失败不应中断工作流
+            result["delivered"] = False
+            result["error"] = str(e)[:200]
+        return result
+
     def _do_api_call(self, action: Dict) -> Dict:
-        """执行API调用 (模拟)"""
-        endpoint = action.get("endpoint", "")
+        """执行API调用 (v0.5.0: 真实 HTTP 请求)
+
+        endpoint 缺省时回退到环境变量 DF_WEBHOOK_URL; 两者都无则打印模拟。
+        使用标准库 urllib, 超时 10s, 失败不抛出而是返回 error 状态。
+        """
+        import os
+        import urllib.error
+        import urllib.request
+
+        endpoint = action.get("endpoint") or os.environ.get("DF_WEBHOOK_URL", "")
         payload = action.get("payload", {})
-        
-        print(f"\n[API调用] {endpoint}")
-        print(f"  Payload: {json.dumps(payload, ensure_ascii=False)}")
-        
-        return {
-            "status": "simulated",
-            "type": "api_call",
-            "endpoint": endpoint
-        }
-    
+
+        if not endpoint:
+            print(f"\n[API调用-模拟] 未配置 endpoint / DF_WEBHOOK_URL")
+            print(f"  Payload: {json.dumps(payload, ensure_ascii=False)}")
+            return {"status": "simulated", "type": "api_call",
+                    "endpoint": endpoint, "reason": "no_endpoint"}
+
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            endpoint, data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = resp.read(1024).decode(errors="replace")
+                print(f"\n[API调用] {endpoint} -> HTTP {resp.status}")
+                return {
+                    "status": "success",
+                    "type": "api_call",
+                    "endpoint": endpoint,
+                    "http_status": resp.status,
+                    "response": body,
+                }
+        except urllib.error.HTTPError as e:
+            return {"status": "error", "type": "api_call", "endpoint": endpoint,
+                    "http_status": e.code, "error": e.reason}
+        except Exception as e:
+            return {"status": "error", "type": "api_call", "endpoint": endpoint,
+                    "error": str(e)[:200]}
+
     def _do_report_generate(self, action: Dict) -> Dict:
         """生成报告"""
         template = action.get("template", "daily_pulse")
