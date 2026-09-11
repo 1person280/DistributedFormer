@@ -52,7 +52,7 @@ def run_core_test():
     df = DistributedFormer(depth=2, dim=16)
     for step in range(10):
         input_signal = np.random.randn(16) * 0.5
-        output_spikes = df.step(input_signal)
+        output_spikes = df.step({"numeric": input_signal})
         print(f"    Step {step+1}: 输出 {len(output_spikes)} 脉冲, "
               f"调制={df.global_modulation:.2f}, 相位={df.cycle_phase}")
     

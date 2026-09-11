@@ -18,6 +18,8 @@ import numpy as np
 import json
 import time
 from typing import Dict, List, Tuple, Optional, Callable, Any
+
+from ..codec.spike_codec import SpikeEncoder
 from dataclasses import dataclass, field
 from collections import deque
 import threading
@@ -702,8 +704,106 @@ class FractalLayer:
 
 
 # ═══════════════════════════════════════════════════════════════
-# 6. DistributedFormer 完整网络
+# 6. 多模态顶层模块: InputModule / OutputModule
 # ═══════════════════════════════════════════════════════════════
+
+SUPPORTED_MODALITIES = ("numeric", "text", "timeseries", "image")
+
+
+class InputModule:
+    """独立顶层输入模块: 一种模态一组脉冲单元 + 绑定编码器
+
+    每种模态拥有自己的 16 个 SpikingUnit, 原始数据在本模块内完成
+    编码 → 单元步进 → 脉冲/模式产出, 模态之间互不干扰。
+    """
+
+    def __init__(self, modality: str, dim: int = 16, n_units: int = 16):
+        if modality not in SUPPORTED_MODALITIES:
+            raise ValueError(
+                f"不支持的模态: {modality!r}, 可选: {SUPPORTED_MODALITIES}"
+            )
+        self.modality = modality
+        self.dim = dim
+        self.encoder = SpikeEncoder(dim=dim)
+        self.units = [SpikingUnit(f"{modality}_U{i}", dim) for i in range(n_units)]
+        self.last_spikes: List[SpikeMessage] = []
+
+    def encode(self, raw: Any) -> np.ndarray:
+        """原始数据 → dim 维脉冲信号 (数值向量直接透传)"""
+        if isinstance(raw, np.ndarray) and raw.ndim == 1:
+            signal = np.zeros(self.dim)
+            n = min(len(raw), self.dim)
+            signal[:n] = raw[:n]
+            return signal
+        if self.modality == "numeric":
+            return self.encoder.encode_numeric(float(raw))
+        if self.modality == "text":
+            return self.encoder.encode_text(str(raw))
+        if self.modality == "timeseries":
+            signals = self.encoder.encode_timeseries(list(raw))
+            return signals[-1] if signals else np.zeros(self.dim)
+        # image: 2D 数组 (灰度), 确定性 4×4 平均池化
+        return self.encoder.encode_image(np.asarray(raw, dtype=float))
+
+    def step(self, raw: Any, modulation: float = 1.0) -> List[SpikeMessage]:
+        """编码并单步执行本模块的所有单元"""
+        signal = self.encode(raw)
+        zeros = np.zeros(self.dim)
+        spikes = []
+        for unit in self.units:
+            spike = unit.step(signal, zeros, modulation)
+            if spike:
+                spikes.append(spike)
+        self.last_spikes = spikes
+        return spikes
+
+    def get_pattern(self) -> np.ndarray:
+        """模块激活模式 (长度 = 单元数)"""
+        pattern = np.zeros(len(self.units))
+        for i, unit in enumerate(self.units):
+            pattern[i] = np.linalg.norm(unit.state) * (1 - unit.fatigue)
+        return pattern
+
+    def reset_state(self) -> None:
+        for unit in self.units:
+            unit.state = np.zeros(self.dim)
+            unit.fatigue = 0.0
+            unit.refractory = 0
+        self.last_spikes = []
+
+
+class OutputModule:
+    """独立顶层输出模块: 16 个脉冲单元, 模式提取供动作解码"""
+
+    def __init__(self, dim: int = 16, n_units: int = 16):
+        self.dim = dim
+        self.units = [SpikingUnit(f"output_U{i}", dim) for i in range(n_units)]
+        self.last_spikes: List[SpikeMessage] = []
+
+    def step(self, signal: np.ndarray, modulation: float = 1.0) -> List[SpikeMessage]:
+        zeros = np.zeros(self.dim)
+        spikes = []
+        for unit in self.units:
+            spike = unit.step(signal, zeros, modulation)
+            if spike:
+                spike.source_agent_id = "output"
+                spikes.append(spike)
+        self.last_spikes = spikes
+        return spikes
+
+    def get_pattern(self) -> np.ndarray:
+        pattern = np.zeros(len(self.units))
+        for i, unit in enumerate(self.units):
+            pattern[i] = np.linalg.norm(unit.state) * (1 - unit.fatigue)
+        return pattern
+
+    def reset_state(self) -> None:
+        for unit in self.units:
+            unit.state = np.zeros(self.dim)
+            unit.fatigue = 0.0
+            unit.refractory = 0
+        self.last_spikes = []
+
 
 class DistributedFormer:
     """
@@ -722,58 +822,75 @@ class DistributedFormer:
     - KV堆:  持久工作记忆
     """
     
-    def __init__(self, depth: int = 2, dim: int = 16, 
+    def __init__(self, depth: int = 2, dim: int = 16,
                  kv_capacity: int = 100000,
                  num_think_layers: int = 1,
-                 training_mode: bool = False):
+                 training_mode: bool = False,
+                 modalities: Optional[List[str]] = None):
         self.depth = depth
         self.dim = dim
         self.num_think_layers = num_think_layers
         self.training_mode = training_mode  # 训练模式: 跳过KV查询以加速
-        
-        # 输入层 (16个编码单元)
-        self.input_units = [SpikingUnit(f"input_U{i}", dim) for i in range(16)]
-        
+
+        # 顶层多模态输入模块: 每种模态独立一组脉冲单元 + 编码器
+        mods = list(modalities) if modalities else list(SUPPORTED_MODALITIES)
+        self.input_modules: Dict[str, InputModule] = {
+            m: InputModule(m, dim=dim) for m in mods
+        }
+        # 模态融合权重 (后续可学习)
+        self.modality_weights: Dict[str, float] = {m: 0.5 for m in mods}
+
         # 思考层: num_think_layers层分形递归
         self.think_layers: List[FractalLayer] = []
         for i in range(num_think_layers):
             self.think_layers.append(FractalLayer(f"think_L{i}", depth, dim))
-        
-        # 输出层 (16个解码单元)
-        self.output_units = [SpikingUnit(f"output_U{i}", dim) for i in range(16)]
-        
+
+        # 顶层输出模块 (独立于输入与思考层)
+        self.output_module = OutputModule(dim=dim)
+
         # KV堆 (全局共享)
         self.kv_stack = KVStack(capacity=kv_capacity, dim=dim)
-        
+
         # 全局调制 (节律控制)
         self.global_modulation = 1.0
         self.cycle_phase = 0
         self.think_phase = 80
         self.inhibit_phase = 40
         self.cycle_length = 120
-        
+
         # 统计
         self.total_steps = 0
-        
+
         # STDP 全局学习开关
         self.learning_enabled = True
         self._units_map: Dict[str, SpikingUnit] = {}
         self._all_units: List[SpikingUnit] = []
         self._build_units_map()
-    
+
+    @property
+    def input_units(self) -> List[SpikingUnit]:
+        """向后兼容: numeric 模态模块的单元 (旧单输入层)"""
+        return self.input_modules["numeric"].units
+
+    @property
+    def output_units(self) -> List[SpikingUnit]:
+        """输出模块的单元 (保持旧属性名可用)"""
+        return self.output_module.units
+
     def _build_units_map(self) -> None:
         """构建所有单元的映射表和缓存列表 (用于STDP跨单元查找)"""
         self._units_map.clear()
         self._all_units = []
-        
-        for u in self.input_units:
-            self._units_map[u.unit_id] = u
-            self._all_units.append(u)
+
+        for module in self.input_modules.values():
+            for u in module.units:
+                self._units_map[u.unit_id] = u
+                self._all_units.append(u)
         for layer in self.think_layers:
             for u in layer._all_units_cache:
                 self._units_map[u.unit_id] = u
                 self._all_units.append(u)
-        for u in self.output_units:
+        for u in self.output_module.units:
             self._units_map[u.unit_id] = u
             self._all_units.append(u)
     
@@ -821,43 +938,59 @@ class DistributedFormer:
             progress = (self.cycle_phase - self.think_phase) / self.inhibit_phase
             return 0.5 - 0.4 * progress
     
-    def step(self, encoded_input: np.ndarray) -> List[SpikeMessage]:
+    def step(self, inputs: Dict[str, Any]) -> List[SpikeMessage]:
         """
-        完整网络单步执行
-        
+        完整网络单步执行 (多模态)
+
         Args:
-            encoded_input: 编码后的输入脉冲 (至少dim维)
-        
+            inputs: {模态名: 原始数据} 字典。可用的模态:
+                "numeric"    → float 或 dim 维向量
+                "text"       → str
+                "timeseries" → 数值序列 (取最新差分)
+                "image"      → 2D ndarray (灰度)
+            只需给出本次存在的模态, 未提供的模态模块静默。
+            传 {} 或 None 表示无外部输入 (自发活动)。
+
         Returns:
-            输出层发射的脉冲消息
+            输出模块发射的脉冲消息
         """
         self.total_steps += 1
         self.cycle_phase = (self.cycle_phase + 1) % self.cycle_length
         self.global_modulation = self.get_global_modulation()
-        
-        # 确保输入维度正确
-        if len(encoded_input) < self.dim:
-            padded = np.zeros(self.dim)
-            padded[:len(encoded_input)] = encoded_input
-            encoded_input = padded
-        
-        all_spikes = []
-        
-        # 1. 输入层处理
-        input_spikes = []
-        for unit in self.input_units:
-            spike = unit.step(encoded_input[:self.dim], 
-                            np.zeros(self.dim), 
-                            self.global_modulation)
-            if spike:
-                input_spikes.append(spike)
-        all_spikes.extend(input_spikes)
-        
-        # 2. 思考层处理 (异步传播)
-        layer_input = encoded_input
+
+        if inputs is None:
+            inputs = {}
+        if not isinstance(inputs, dict):
+            raise TypeError(
+                "step() 需要 {模态: 数据} 字典, "
+                f"例如 {{'numeric': 1.5, 'text': '...'}}; 收到 {type(inputs).__name__}"
+            )
+
+        # 1. 各输入模块独立处理 (编码 + 单元步进)
+        module_patterns = {}
+        for name, raw in inputs.items():
+            if name not in self.input_modules:
+                raise KeyError(
+                    f"未知输入模态 {name!r}, 已启用: {list(self.input_modules)}"
+                )
+            module = self.input_modules[name]
+            module.step(raw, self.global_modulation)
+            pattern = module.get_pattern()
+            if np.linalg.norm(pattern) > 0:
+                module_patterns[name] = pattern
+
+        # 2. 模态融合: 激活模块加权平均 → tanh → 思考层输入
+        if module_patterns:
+            fused = np.zeros(self.dim)
+            for name, pattern in module_patterns.items():
+                fused += self.modality_weights.get(name, 0.5) * pattern
+            layer_input = np.tanh(fused)
+        else:
+            layer_input = np.zeros(self.dim)
+
+        # 3. 思考层处理 (异步传播)
         for layer in self.think_layers:
             layer_spikes = layer.step(layer_input, self.kv_stack, self.global_modulation, self.training_mode)
-            all_spikes.extend(layer_spikes)
             # 层间传播: 将当前层的脉冲聚合为下一层输入
             if layer_spikes:
                 layer_input = np.zeros(self.dim)
@@ -866,29 +999,21 @@ class DistributedFormer:
                     idx = hash(sp.source_unit_id) % self.dim
                     layer_input[idx] += sp.payload.value * sp.payload.strength
                 layer_input = np.tanh(layer_input)  # 归一化
-        
-        # 3. 输出层处理
-        output_spikes = []
-        for unit in self.output_units:
-            spike = unit.step(layer_input, 
-                            np.zeros(self.dim), 
-                            self.global_modulation)
-            if spike:
-                spike.source_agent_id = "output"
-                output_spikes.append(spike)
-        all_spikes.extend(output_spikes)
-        
-        # 4. KV堆更新 (仅在非训练模式下)
+
+        # 4. 输出模块处理
+        output_spikes = self.output_module.step(layer_input, self.global_modulation)
+
+        # 5. KV堆更新 (仅在非训练模式下)
         if not self.training_mode:
-            for i, unit in enumerate(self.output_units):
+            for i, unit in enumerate(self.output_module.units):
                 if unit.spike_count > 0:
                     entry_id = f"output_{i}_{self.total_steps}"
                     self.kv_stack.push(entry_id, unit.state, unit.state)
-        
-        # 5. STDP 学习: 对所有发射过脉冲的单元应用权重更新
+
+        # 6. STDP 学习: 对所有发射过脉冲的单元应用权重更新
         if self.learning_enabled:
             self._apply_stdp_to_all()
-        
+
         return output_spikes
     
     def get_network_stats(self) -> Dict:
@@ -896,7 +1021,7 @@ class DistributedFormer:
         total_units = len(self._all_units)
         total_spikes = sum(u.spike_count for u in self._all_units)
         avg_fatigue = np.mean([u.fatigue for u in self._all_units]) if self._all_units else 0.0
-        
+
         return {
             "depth": self.depth,
             "total_units": total_units,
@@ -904,17 +1029,23 @@ class DistributedFormer:
             "avg_fatigue": float(avg_fatigue),
             "cycle_phase": self.cycle_phase,
             "global_modulation": float(self.global_modulation),
+            "input_modules": {
+                name: {
+                    "units": len(m.units),
+                    "total_spikes": sum(u.spike_count for u in m.units),
+                    "last_step_spikes": len(m.last_spikes),
+                    "weight": self.modality_weights.get(name, 0.5),
+                }
+                for name, m in self.input_modules.items()
+            },
             "kv_stats": self.kv_stack.get_stats(),
             "total_steps": self.total_steps,
             "stdp": self.get_stdp_stats()
         }
-    
+
     def get_output_pattern(self) -> np.ndarray:
-        """获取输出层激活模式 (用于动作解码)"""
-        pattern = np.zeros(len(self.output_units))
-        for i, unit in enumerate(self.output_units):
-            pattern[i] = np.linalg.norm(unit.state) * (1 - unit.fatigue)
-        return pattern
+        """获取输出模块激活模式 (用于动作解码)"""
+        return self.output_module.get_pattern()
     
     def get_think_layer_pattern(self) -> np.ndarray:
         """获取思考层聚合激活模式 (用于监督学习)"""
@@ -933,6 +1064,9 @@ class DistributedFormer:
     
     def reset_state(self) -> None:
         """重置所有单元的内部状态 (用于训练时每个样本独立)"""
+        for module in self.input_modules.values():
+            module.reset_state()
+        self.output_module.reset_state()
         for unit in self._all_units:
             unit.state = np.zeros(self.dim)
             unit.fatigue = 0.0
@@ -1024,8 +1158,7 @@ if __name__ == "__main__":
     
     # 模拟10步
     for step in range(10):
-        input_signal = np.random.randn(16) * 0.5
-        output_spikes = df.step(input_signal)
+        output_spikes = df.step({"numeric": np.random.randn(16) * 0.5})
         print(f"  Step {step+1}: 输出层发射{len(output_spikes)}个脉冲, "
               f"调制={df.global_modulation:.2f}, 相位={df.cycle_phase}")
     
@@ -1050,7 +1183,7 @@ if __name__ == "__main__":
     print("\n  禁用 STDP 学习后运行5步...")
     df.enable_learning(False)
     for step in range(5):
-        df.step(np.random.randn(16) * 0.5)
+        df.step({"numeric": np.random.randn(16) * 0.5})
     stdp_stats2 = df.get_stdp_stats()
     print(f"  禁用后 LTP: {stdp_stats2['total_ltp']} (应不变)")
     print(f"  学习开关: {stdp_stats2['learning_enabled']}")

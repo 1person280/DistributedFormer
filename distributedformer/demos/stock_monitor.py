@@ -289,20 +289,23 @@ class StockMonitorWorkflow:
                 "news": news
             }
             
-            # 2. 编码为脉冲信号
-            stock_signal = self.codec.encode_stock_data(
-                price=price_data["price"],
-                change_pct=price_data["change_pct"],
-                volume=price_data["volume"],
-                news_text=news
-            )
-            
+            # 2. 构造多模态输入 (编码由各 InputModule 内部完成)
+            stock_inputs = {
+                "numeric": np.array([
+                    price_data["change_pct"] / 10.0,
+                    price_data["price"] / 1000.0,
+                    price_data["volume"] / 1e8,
+                ]),
+                "text": news,
+                "timeseries": self.simulator.get_price_history(ticker, 5),
+            }
+
             # 3. 注入感知智能体
             agent_id = f"perception_{ticker.lower()}"
             if agent_id in self.engine.agents:
                 agent = self.engine.agents[agent_id]
                 # 直接设置外部输入
-                agent.step(stock_signal)
+                agent.step(stock_inputs)
         
         # 4. 运行工作流引擎
         engine_stats = self.engine.step()

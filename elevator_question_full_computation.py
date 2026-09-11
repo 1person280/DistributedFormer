@@ -526,7 +526,7 @@ def chapter_6_distributedformer():
     print(f"    {'-'*56}")
     
     for step in range(20):
-        spikes = df.step(question_signal)
+        spikes = df.step({"numeric": question_signal})
         output_pattern = df.get_output_pattern()
         output_patterns.append(output_pattern.copy())
         all_spikes.extend(spikes)

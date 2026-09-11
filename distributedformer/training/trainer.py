@@ -266,7 +266,7 @@ class DFTrainer:
         original_params = self._inject_supervisory_signal(sample.target_pattern)
         
         # 前向传播
-        output_spikes = self.df.step(sample.input_signal)
+        output_spikes = self.df.step({"numeric": sample.input_signal})
         output_pattern = self.df.get_output_pattern()
         think_pattern = self.df.get_think_layer_pattern()
         
@@ -355,7 +355,7 @@ class DFTrainer:
         for sample in samples:
             self.df.reset_state()
             
-            output_spikes = self.df.step(sample.input_signal)
+            output_spikes = self.df.step({"numeric": sample.input_signal})
             output_pattern = self.df.get_output_pattern()
             think_pattern = self.df.get_think_layer_pattern()
             

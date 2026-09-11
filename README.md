@@ -28,6 +28,7 @@ DistributedFormer 探索一条不同于 Transformer 的路线：**用超简单�
 | 机制 | 说明 |
 |------|------|
 | **16 参数脉冲单元** | 集成放电模型：输入门控 + 状态反馈 + 疲劳/不应期 + 自发放电（默认模式网络，无输入仍"持续思考"） |
+| **多模态顶层模块** | numeric / text / timeseries / image 四种模态各拥有独立的 16 单元输入模块（含绑定编码器），输出为独立顶层 OutputModule，模态按权重融合进思考层 |
 | **分形递归** | 每层 16 单元，深度 d 的思考层含 Σ16^k (k=1..d+1) 个单元，深度 2 ≈ 4,368 单元 / 69K 参数 |
 | **KV 堆记忆** | 分布式持久 KV 存储（余弦相似度检索 + 时间衰减 + LRU 淘汰），替代 Transformer 的 KV Cache |
 | **5 类脉冲智能体** | 感知 / 推理 / 动作 / 记忆 / 节律，共享全局 KV 堆，脉冲每跳衰减 ×0.7 |
@@ -63,7 +64,7 @@ dformer train --depth 1 --epochs 10
 dformer test
 ```
 
-作为库使用：
+作为库使用（v0.3.0 多模态 API）：
 
 ```python
 from distributedformer import DistributedFormer, KVStack
@@ -71,7 +72,13 @@ from distributedformer import DistributedFormer, KVStack
 kv = KVStack(capacity=10000, dim=16)
 df = DistributedFormer(depth=2, dim=16, kv_stack=kv)
 
-spikes = df.step(input_signal)   # 异步脉冲输出
+# 每种模态独立顶层输入模块, 编码在模块内完成
+spikes = df.step({
+    "numeric": 1.5,              # 标量或向量
+    "text": "market surges",     # TF-IDF 稀疏编码
+    "timeseries": [1, 2, 4, 3],  # 差分编码
+    "image": gray_image_2d,      # 4×4 池化空间编码
+})
 ```
 
 ## Docker 部署

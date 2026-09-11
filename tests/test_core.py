@@ -36,7 +36,7 @@ def test_spiking_unit_fires_spikes():
 def test_network_step():
     df = DistributedFormer(depth=1, dim=16)
     for _ in range(3):
-        spikes = df.step(np.random.randn(16) * 0.5)
+        spikes = df.step({"numeric": np.random.randn(16) * 0.5})
         assert isinstance(spikes, list)
     stats = df.get_network_stats()
     assert stats["total_units"] > 0

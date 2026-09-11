@@ -108,8 +108,9 @@ class MultimodalSpikeEncoder:
         编码当前帧 + 帧间运动 (光流近似)
         """
         signal = self.encode_image(frame)
+        self.last_image = frame.copy()
         
-        # 运动检测: 与上一帧的差分
+ # 运动检测: 与上一帧的差分
         if prev_frame is not None and self.last_image is not None:
             try:
                 # 统一尺寸
@@ -299,7 +300,7 @@ class MultimodalPerceptionAgent:
         
     def process_image(self, image: np.ndarray) -> np.ndarray:
         """处理图像输入"""
-        return self.encoder.encode_image(image)
+        return self.base_encoder.encode_image(image)
     
     def process_video(self, frames: List[np.ndarray]) -> List[np.ndarray]:
         """处理视频输入，返回每帧的脉冲序列"""

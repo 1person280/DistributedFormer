@@ -492,7 +492,7 @@ if __name__ == "__main__":
     # 运行一段时间收集数据
     print("\n运行网络收集数据...")
     for i in range(30):
-        df.step(np.random.randn(16) * 0.5)
+        df.step({"numeric": np.random.randn(16) * 0.5})
     
     # 创建面板
     dashboard = PulseDashboard(network=df)

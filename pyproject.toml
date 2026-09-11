@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "distributedformer"
-version = "0.2.0"
+version = "0.3.0"
 description = "Event-driven spiking neural network agent framework with fractal recursion and KV-stack memory"
 readme = "README.md"
 requires-python = ">=3.9"

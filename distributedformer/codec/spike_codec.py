@@ -122,17 +122,39 @@ class SpikeEncoder:
         
         return signals
     
-    def encode_image_placeholder(self, image_data: Any) -> np.ndarray:
+    def encode_image(self, image_data: Any, pool: int = 4) -> np.ndarray:
         """
-        图像像素 → 空间脉冲拓扑 (3D网格映射)
-        
-        简化版本: 将图像统计信息映射到脉冲信号
+        图像 (2D 灰度数组) → 确定性空间脉冲信号
+
+        对图像做 pool×pool 平均池化得到粗粒度强度图,
+        展平为 pool² 维特征并归一化, 不足 dim 维则零填充。
         """
-        # 实际实现需要图像处理库，这里用占位符
+        img = np.asarray(image_data, dtype=float)
+        if img.ndim != 2:
+            raise ValueError(f"encode_image 需要 2D 数组, 收到 shape={img.shape}")
+        h, w = img.shape
+        ph, pw = max(1, h // pool), max(1, w // pool)
+        pooled = np.zeros((pool, pool))
+        for i in range(pool):
+            for j in range(pool):
+                block = img[i*ph:(i+1)*ph, j*pw:(j+1)*pw]
+                pooled[i, j] = block.mean() if block.size else 0.0
+        feats = pooled.flatten()
+        if feats.max() > feats.min():
+            feats = (feats - feats.min()) / (feats.max() - feats.min())
         signal = np.zeros(self.dim)
-        # 随机模拟图像特征
-        signal[:4] = np.random.random(4) * 0.5
+        n = min(len(feats), self.dim)
+        signal[:n] = feats[:n]
+        norm = np.linalg.norm(signal)
+        if norm > 0:
+            signal = signal / norm * min(1.0, norm)
         return signal
+
+    def encode_image_placeholder(self, image_data: Any) -> np.ndarray:
+        """已废弃的随机占位编码, 保留仅为兼容, 等价于 encode_image"""
+        if isinstance(image_data, np.ndarray) and image_data.ndim == 2:
+            return self.encode_image(image_data)
+        return np.zeros(self.dim)
     
     def encode_multi(self, data_dict: Dict[str, Any]) -> np.ndarray:
         """

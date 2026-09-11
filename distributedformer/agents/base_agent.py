@@ -165,8 +165,8 @@ class BaseSpikeAgent(ABC):
         # 2. 聚合输入
         combined_input = np.zeros(self.dim)
         
-        # 外部输入
-        if external_input is not None:
+        # 外部输入 (向量或 {模态: 数据} 字典)
+        if external_input is not None and not isinstance(external_input, dict):
             if len(external_input) >= self.dim:
                 combined_input += external_input[:self.dim]
             else:
@@ -182,7 +182,13 @@ class BaseSpikeAgent(ABC):
         # 3. DF网络计算
         output_spikes = []
         if self.df:
-            output_spikes = self.df.step(combined_input)
+            if isinstance(external_input, dict):
+                df_inputs = dict(external_input)
+                if inbox_spikes and "numeric" not in df_inputs:
+                    df_inputs["numeric"] = combined_input
+            else:
+                df_inputs = {"numeric": combined_input}
+            output_spikes = self.df.step(df_inputs)
             # 标记来源
             for sp in output_spikes:
                 sp.source_agent_id = self.agent_id

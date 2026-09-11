@@ -15,3 +15,5 @@ training/checkpoints/*/
 logs/
 reports/stock_monitor_summary.md
 computation_output.txt
+.zcode/
+HEAD

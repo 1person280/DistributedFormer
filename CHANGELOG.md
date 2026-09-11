@@ -1,5 +1,27 @@
 # 更新日志
 
+## v0.3.0 (2026-09-11)
+
+多模态顶层模块化改造 (breaking change):
+
+### 新增
+- **独立顶层输入模块**: numeric / text / timeseries / image 四种模态, 每种模态拥有自己的
+  16 个脉冲单元与绑定编码器 (`InputModule`), 模态间互不干扰
+- 新多模态 API: `df.step({"numeric": 1.5, "text": "...", "timeseries": [...], "image": 2D数组})`
+  直接接受原始数据, 编码下沉到各输入模块内部
+- **独立顶层输出模块** (`OutputModule`): 16 单元 + 模式提取, 与输入/思考层解耦
+- 模态融合层: 激活模块按 `modality_weights` 加权平均 → tanh → 思考层输入
+- 真实确定性图像编码器 (4×4 平均池化), 替代原随机占位实现
+- 网络统计新增各输入模块脉冲统计
+
+### 变更 (Breaking)
+- `DistributedFormer.step(vector)` 移除, 一律使用模态字典; 全部调用方
+  (trainer / agents / demos / selfcheck / experiments) 已迁移
+- 未启用的模态模块静默; 未知模态抛 KeyError, 非字典输入抛 TypeError
+
+### 兼容保留
+- `get_output_pattern()` / `output_units` 属性别名等读取接口不变
+
 ## v0.2.0 (2026-09-11)
 
 产品化重构版本。核心算法保持 Pre0.1 原貌, 工程链路全面修复:
