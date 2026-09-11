@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# 训练权重体积过大 (单个 5.7-30MB, 合计 ~240MB), 通过 GitHub Release 分发
+training/checkpoints/*.npz
+training/checkpoints/*/
+*.npz
+
+logs/
+reports/stock_monitor_summary.md
+computation_output.txt

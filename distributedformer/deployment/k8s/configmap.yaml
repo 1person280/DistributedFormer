@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: distributedformer-config
+data:
+  DF_DEPTH: "2"
+  DF_DIM: "16"
+  KV_CAPACITY: "100000"
+  DF_CYCLE_LENGTH: "120"
+  DF_THINK_PHASE: "80"
+  DF_INHIBIT_PHASE: "40"
+  LOG_LEVEL: "INFO"
+  PROMETHEUS_ENABLED: "true"
+  METRICS_PORT: "9090"

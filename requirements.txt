@@ -1,0 +1,5 @@
+numpy>=1.24
+# 可选: 真实行情数据源
+# yfinance>=0.2
+# 可选: Redis KV 堆后端
+# redis>=5.0
