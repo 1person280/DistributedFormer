@@ -2,15 +2,15 @@
 
 # DistributedFormer
 
-**事件驱动的脉冲神经网络智能体框架**
+**事件驱动的脉冲神经网络智能体框架** · 内嵌模型 **CubeGPT**
 
-以 16 参数脉冲神经元为基本单元 · 分形递归扩展 · KV 堆工作记忆 · 多智能体脉冲工作流
+以 16 参数脉冲神经元为基本单元 · CubeGPT 立方体连接多模态脉冲大模型 · KV 堆工作记忆 · 多智能体脉冲工作流
 面向流式监控、异常检测等持续在线场景
 
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-orange)](CHANGELOG.md)
 
 </div>
 
@@ -23,10 +23,17 @@ DistributedFormer 探索一条不同于 Transformer 的路线：**用超简单�
 "永远在线的流式监控"——市场异动检测、指标巡检、IoT 阈值告警——这类任务不需要大模型的重算力，
 需要的是低延迟、事件驱动和持久的工作记忆。
 
+框架内嵌的模型是 **CubeGPT**：
+**Cube** 指连接方式——numeric / text / timeseries / image 四个模态面构成立方体的四个侧面，
+以"棱"环形侧连（每步把本面脉冲聚合注入邻面）；**GPT** 则是向 ChatGPT 致敬的命名
+（这里不妨戏称其为 Generative Pulse Transformer）。
+规模为 4 面 × ~4,400 单元 × 16 参数 ≈ **281K 参数**，纯 numpy 即可运行。
+
 核心机制一览：
 
 | 机制 | 说明 |
 |------|------|
+| **CubeGPT** | 4 个模态面（每面 = 16 单元输入端口 + 深度 2 分形皮层 4,368 单元）环形侧连 + 顶层 OutputModule 头部，4×4,400×16 ≈ 281K 参数 |
 | **16 参数脉冲单元** | 集成放电模型：输入门控 + 状态反馈 + 疲劳/不应期 + 自发放电（默认模式网络，无输入仍"持续思考"） |
 | **多模态顶层模块** | numeric / text / timeseries / image 四种模态各拥有独立的 16 单元输入模块（含绑定编码器），输出为独立顶层 OutputModule，模态按权重融合进思考层 |
 | **分形递归** | 每层 16 单元，深度 d 的思考层含 Σ16^k (k=1..d+1) 个单元，深度 2 ≈ 4,368 单元 / 69K 参数 |
@@ -67,13 +74,13 @@ dformer test
 作为库使用（v0.3.0 多模态 API）：
 
 ```python
-from distributedformer import DistributedFormer, KVStack
+from distributedformer import CubeGPT, KVStack
 
 kv = KVStack(capacity=10000, dim=16)
-df = DistributedFormer(depth=2, dim=16, kv_stack=kv)
+gpt = CubeGPT(depth=2, dim=16)   # 深度2 = 281K 参数
 
-# 每种模态独立顶层输入模块, 编码在模块内完成
-spikes = df.step({
+# 4 个模态面独立编码, 立方体棱环形侧连, 顶层输出模块生成动作脉冲
+spikes = gpt.step({
     "numeric": 1.5,              # 标量或向量
     "text": "market surges",     # TF-IDF 稀疏编码
     "timeseries": [1, 2, 4, 3],  # 差分编码
@@ -124,6 +131,9 @@ v0.2.0 的工程化重构（可安装包、CLI、测试、部署链路修复）�
 ## 路线图
 
 - [x] v0.2.0 — 产品化重构：可安装包 / CLI / serve 长驻服务 / 真实行情数据源 / 测试与 CI / 修复 Docker 链路
+- [x] v0.3.0 — 多模态顶层模块化：四种模态独立输入模块 + 独立输出模块 + 确定性图像编码
+- [x] v0.4.0 — 内嵌模型正式命名为 **CubeGPT**（立方体棱连接，4 面 × 4,400 单元 ≈ 281K 参数），智能体框架全面切换
+- [ ] CubeGPT 学习规则升级：在 ≥1 个真实多模态任务上显著超过随机基线
 - [ ] KV 堆注意力接入主计算路径（当前训练模式下被跳过，见已知问题）
 - [ ] 真实数据集基准（替代纯合成数据），建立有意义的评估基线
 - [ ] Redis 分布式 KV 堆在多节点工作流中实际启用

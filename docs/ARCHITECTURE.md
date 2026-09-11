@@ -18,8 +18,14 @@
          模态融合层 (modality_weights 加权 → tanh)
                        ▼
 ┌─────────────────────────────────────────────────────┐
-│ 脉冲网络层  DistributedFormer (depth=2 ≈ 4,368 单元)  │
-│   思考层(分形递归) → 顶层输出模块 OutputModule(16)    │
+│ CubeGPT (depth=2, 4面×~4,400单元 ≈ 281K 参数)         │
+│                                                      │
+│   ┌─ numeric face ─→棱─→ text face ─┐               │
+│   │   端口16+皮层4368      端口16+皮层4368            │
+│   └←─棱─ image face ←─棱─ timeseries face ←┘        │
+│        (环形侧连: 每步本面脉冲注入邻面)               │
+│                    ▼ 融合                            │
+│   顶层输出模块 OutputModule (16 单元)                 │
 │   节律调制: 120 步周期 (80 思考 + 40 抑制)            │
 └──────────────────────┬──────────────────────────────┘
                        ▼
@@ -79,3 +85,21 @@ dformer test    # 模块自检
 
 容器: `distributedformer/deployment/Dockerfile` + `docker-compose.yml` (Redis + 2 节点 + 可选 Prometheus)。
 K8s: `distributedformer/deployment/k8s/`。
+
+## CubeGPT: 立方体连接的多模态脉冲模型 (v0.4.0)
+
+**命名**: Cube 指连接方式——四个模态面构成立方体侧面, 以"棱"环形侧连;
+GPT 致敬 ChatGPT (Generative Pulse Transformer)。
+
+**规模**: 4 面 × ~4,400 单元 × 16 参数 ≈ 281K 参数。
+精确值: 每面 = 输入端口 16 单元 + 深度 2 分形皮层 4,368 单元 = 4,384 单元;
+4 面 + 输出头 16 单元 = 17,552 单元 / 280,832 参数。
+
+**数据流**:
+1. 每面端口编码原始数据 → 端口模式 + 邻面棱传入的 inbox → tanh → 面皮层计算
+2. 面间棱: 本面皮层脉冲聚合 (hash 散列到 dim 维, tanh 归一化) → 环形邻面下一拍 inbox
+3. 各面输出融合 → OutputModule 头部 → 动作解码 (SpikeDecoder, 位于 agent 层)
+
+**与 DistributedFormer 的关系**: DistributedFormer (共享思考层结构) 保留为
+训练基底, trainer 的思考层监督实验基于它; 生产/演示路径的智能体内嵌网络
+已切换为 CubeGPT。

@@ -805,6 +805,298 @@ class OutputModule:
         self.last_spikes = []
 
 
+# ═══════════════════════════════════════════════════════════════
+# 6.5 CubeGPT: 立方体连接的多模态脉冲大模型
+# ═══════════════════════════════════════════════════════════════
+
+def calculate_cube_scale(depth: int, n_faces: int = 4) -> Dict:
+    """计算 CubeGPT 规模
+
+    每个面 (CubeFace) = 输入端口 16 单元 + 分形皮层 Σ16^k (k=1..depth+1) 单元。
+    深度2时皮层 4,368 单元, 标称 ~4,400 单元/面;
+    4 面 × 4,400 单元 × 16 参数 ≈ 281K 参数。
+    """
+    port_units = 16
+    cortex_units = sum(16 ** k for k in range(1, depth + 2))
+    units_per_face = port_units + cortex_units
+    total_units = units_per_face * n_faces + 16  # + OutputModule 头部
+    return {
+        "faces": n_faces,
+        "depth": depth,
+        "cortex_units_per_face": cortex_units,
+        "units_per_face": units_per_face,
+        "total_units": total_units,
+        "total_params": total_units * 16,
+        "nominal_params": n_faces * 4400 * 16,
+        "description": (
+            f"CubeGPT 深度{depth}: {n_faces}面 × {units_per_face}单元 "
+            f"/ {total_units * 16 // 1000}K参数 "
+            f"(标称 {n_faces * 4400 * 16 // 1000}K)"
+        )
+    }
+
+
+class CubeFace:
+    """CubeGPT 的一个面: 一种模态的输入端口 + 分形皮层
+
+    - port:   InputModule (编码器 + 16 端口单元)
+    - cortex: FractalLayer 分形递归皮层 (深度2 = 4,368 单元)
+    - inbox:  来自环形侧连 (立方体棱) 的邻面脉冲缓冲
+    """
+
+    def __init__(self, modality: str, depth: int = 2, dim: int = 16):
+        self.modality = modality
+        self.depth = depth
+        self.dim = dim
+        self.port = InputModule(modality, dim=dim)
+        self.cortex = FractalLayer(f"face_{modality}", depth, dim)
+        self.inbox = np.zeros(dim)
+        self.last_spikes: List[SpikeMessage] = []
+
+    def step(self, raw: Any, kv_stack: "KVStack", modulation: float = 1.0,
+             training_mode: bool = False) -> List[SpikeMessage]:
+        """端口编码 → 皮层计算 (含侧向输入), 返回皮层脉冲"""
+        self.port.step(raw, modulation)
+        port_pattern = self.port.get_pattern()
+        face_input = np.tanh(port_pattern + self.inbox)
+        spikes = self.cortex.step(face_input, kv_stack, modulation, training_mode)
+        self.last_spikes = spikes
+        return spikes
+
+    def collect_outgoing(self) -> np.ndarray:
+        """将本面脉冲聚合为发往环形邻面的向量"""
+        out = np.zeros(self.dim)
+        for sp in self.last_spikes:
+            idx = hash(sp.source_unit_id) % self.dim
+            out[idx] += sp.payload.value * sp.payload.strength
+        return np.tanh(out)
+
+    def get_units(self) -> List[SpikingUnit]:
+        """端口 + 皮层全部单元 (STDP/重置/统计用)"""
+        return self.port.units + self.cortex._all_units_cache
+
+    def reset_state(self) -> None:
+        self.port.reset_state()
+        self.inbox = np.zeros(self.dim)
+        self.last_spikes = []
+        layer = self.cortex
+        for unit in layer._all_units_cache:
+            unit.state = np.zeros(self.dim)
+            unit.fatigue = 0.0
+            unit.refractory = 0
+        if hasattr(layer, '_vec_state') and layer.N > 0:
+            layer._vec_state[:] = 0.0
+            layer._vec_fatigue[:] = 0.0
+            layer._vec_refractory[:] = 0
+
+
+class CubeGPT:
+    """
+    CubeGPT — 立方体连接的多模态脉冲大模型
+
+    命名: Cube 指连接方式 (4 个模态面构成立方体侧面, 以"棱"环形侧连);
+          GPT 致敬 ChatGPT (Generative Pulse Transformer 的自嘲式缩写)。
+
+    规模 (默认深度2): 4 面 × ~4,400 单元 × 16 参数 ≈ 281K 参数
+      - 每面 = 输入端口(16) + 分形皮层(4,368)
+      - 面间连接: numeric → text → timeseries → image → numeric 环形棱,
+        每步把本面脉冲聚合后注入邻面下一拍的输入
+      - 顶层输出模块 OutputModule (16 单元) 作为生成/动作头部
+
+    API 与 v0.3.0 多模态接口一致:
+        gpt.step({"numeric": 1.5, "text": "..."})
+    """
+
+    CUBE_RING = ("numeric", "text", "timeseries", "image")
+
+    def __init__(self, depth: int = 2, dim: int = 16,
+                 kv_capacity: int = 100000,
+                 training_mode: bool = False,
+                 modalities: Optional[List[str]] = None):
+        self.depth = depth
+        self.dim = dim
+        self.training_mode = training_mode
+
+        mods = list(modalities) if modalities else list(self.CUBE_RING)
+        self.ring = [m for m in self.CUBE_RING if m in mods]
+        # 面按立方体侧面顺序排列, face[i] 的"棱"指向 face[(i+1) % n]
+        self.faces: Dict[str, CubeFace] = {
+            m: CubeFace(m, depth=depth, dim=dim) for m in mods
+        }
+
+        # 顶层输出头部
+        self.output_module = OutputModule(dim=dim)
+
+        # 全局共享 KV 堆
+        self.kv_stack = KVStack(capacity=kv_capacity, dim=dim)
+
+        # 节律
+        self.global_modulation = 1.0
+        self.cycle_phase = 0
+        self.think_phase = 80
+        self.inhibit_phase = 40
+        self.cycle_length = 120
+
+        self.total_steps = 0
+        self.learning_enabled = True
+        self._units_map: Dict[str, SpikingUnit] = {}
+        self._all_units: List[SpikingUnit] = []
+        self._build_units_map()
+
+    # ── 兼容 v0.3.0 多模态接口 ──────────────────────────────
+    @property
+    def input_modules(self) -> Dict[str, InputModule]:
+        return {name: face.port for name, face in self.faces.items()}
+
+    @property
+    def output_units(self) -> List[SpikingUnit]:
+        return self.output_module.units
+
+    def _build_units_map(self) -> None:
+        self._units_map.clear()
+        self._all_units = []
+        for face in self.faces.values():
+            for u in face.get_units():
+                self._units_map[u.unit_id] = u
+                self._all_units.append(u)
+        for u in self.output_module.units:
+            self._units_map[u.unit_id] = u
+            self._all_units.append(u)
+
+    def enable_learning(self, enabled: bool = True) -> None:
+        self.learning_enabled = enabled
+        for u in self._all_units:
+            u.stdp_enabled = enabled
+
+    def _apply_stdp_to_all(self) -> None:
+        if not self.learning_enabled:
+            return
+        for unit in self._all_units:
+            if unit.spike_times:
+                unit.apply_stdp(time.time(), self._units_map)
+
+    def get_stdp_stats(self) -> Dict:
+        total_ltp = sum(u.ltp_count for u in self._all_units)
+        total_ltd = sum(u.ltd_count for u in self._all_units)
+        total_weight_change = sum(u.total_weight_change for u in self._all_units)
+        return {
+            "learning_enabled": self.learning_enabled,
+            "total_ltp": total_ltp,
+            "total_ltd": total_ltd,
+            "total_weight_change": float(total_weight_change),
+            "avg_weight_change": float(total_weight_change / max(1, total_ltp + total_ltd))
+        }
+
+    def get_global_modulation(self) -> float:
+        if self.cycle_phase < self.think_phase:
+            progress = self.cycle_phase / self.think_phase
+            return 1.0 - 0.5 * progress
+        progress = (self.cycle_phase - self.think_phase) / self.inhibit_phase
+        return 0.5 - 0.4 * progress
+
+    def step(self, inputs: Dict[str, Any]) -> List[SpikeMessage]:
+        """
+        CubeGPT 单步执行 (多模态)
+
+        Args:
+            inputs: {模态名: 原始数据} 字典, 未提供的面仅处理侧向输入。
+        Returns:
+            输出模块发射的脉冲消息
+        """
+        self.total_steps += 1
+        self.cycle_phase = (self.cycle_phase + 1) % self.cycle_length
+        self.global_modulation = self.get_global_modulation()
+
+        if inputs is None:
+            inputs = {}
+        if not isinstance(inputs, dict):
+            raise TypeError(
+                "step() 需要 {模态: 数据} 字典, "
+                f"例如 {{'numeric': 1.5, 'text': '...'}}; 收到 {type(inputs).__name__}"
+            )
+        unknown = set(inputs) - set(self.faces)
+        if unknown:
+            raise KeyError(
+                f"未知输入模态 {sorted(unknown)}, 已启用: {list(self.faces)}"
+            )
+
+        # 1. 各面独立计算 (端口编码 + 皮层 + 收取环形棱传入的邻面脉冲)
+        face_spikes: Dict[str, List[SpikeMessage]] = {}
+        for name, face in self.faces.items():
+            raw = inputs.get(name)
+            if raw is not None:
+                spikes = face.step(raw, self.kv_stack, self.global_modulation, self.training_mode)
+            else:
+                # 无外部输入的面仍消费侧向脉冲 (持续思考)
+                spikes = face.step(
+                    np.zeros(self.dim), self.kv_stack,
+                    self.global_modulation, self.training_mode
+                ) if np.any(face.inbox) else []
+            face_spikes[name] = spikes or []
+
+        # 2. 立方体棱: 本面脉冲 → 邻面下一拍的 inbox
+        for i, name in enumerate(self.ring):
+            nxt = self.ring[(i + 1) % len(self.ring)]
+            self.faces[nxt].inbox = self.faces[name].collect_outgoing()
+
+        # 3. 融合各面皮层输出 → 输出头部
+        fused = np.zeros(self.dim)
+        for name in self.ring:
+            contrib = self.faces[name].collect_outgoing()
+            fused += 0.5 * contrib
+        head_input = np.tanh(fused)
+        output_spikes = self.output_module.step(head_input, self.global_modulation)
+
+        # 4. KV 堆写入 (非训练模式)
+        if not self.training_mode:
+            for i, unit in enumerate(self.output_module.units):
+                if unit.spike_count > 0:
+                    self.kv_stack.push(
+                        f"output_{i}_{self.total_steps}", unit.state, unit.state
+                    )
+
+        # 5. STDP
+        if self.learning_enabled:
+            self._apply_stdp_to_all()
+
+        return output_spikes
+
+    def get_output_pattern(self) -> np.ndarray:
+        return self.output_module.get_pattern()
+
+    def get_network_stats(self) -> Dict:
+        total_units = len(self._all_units)
+        return {
+            "model": "CubeGPT",
+            "depth": self.depth,
+            "faces": list(self.faces),
+            "total_units": total_units,
+            "total_params": total_units * 16,
+            "total_spikes": sum(u.spike_count for u in self._all_units),
+            "cycle_phase": self.cycle_phase,
+            "global_modulation": float(self.global_modulation),
+            "faces_stats": {
+                name: {
+                    "cortex_units": len(face.cortex._all_units_cache),
+                    "total_spikes": sum(u.spike_count for u in face.get_units()),
+                    "last_step_spikes": len(face.last_spikes),
+                }
+                for name, face in self.faces.items()
+            },
+            "kv_stats": self.kv_stack.get_stats(),
+            "total_steps": self.total_steps,
+            "stdp": self.get_stdp_stats()
+        }
+
+    def reset_state(self) -> None:
+        for face in self.faces.values():
+            face.reset_state()
+        self.output_module.reset_state()
+        self.cycle_phase = 0
+        self.global_modulation = 1.0
+        self.total_steps = 0
+
+
 class DistributedFormer:
     """
     DistributedFormer 完整网络

@@ -1,15 +1,17 @@
 """
 DistributedFormer — 事件驱动的脉冲神经网络智能体框架
 
-以 16 参数脉冲神经元为基本单元, 通过分形递归扩展规模,
+内嵌模型 CubeGPT: 立方体连接的多模态脉冲大模型
+(4 个模态面 × ~4,400 单元 × 16 参数 ≈ 281K 参数),
 配合 KV 堆记忆与多智能体工作流, 面向流式监控 / 异常检测等
 持续在线场景。
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "__version__",
+    "CubeGPT",
     "DistributedFormer",
     "KVStack",
     "SpikingUnit",
@@ -20,9 +22,9 @@ __all__ = [
 
 def __getattr__(name):
     # 延迟导入, 避免在 import 包时就加载 numpy 重型依赖链
-    if name == "DistributedFormer":
-        from distributedformer.core.distributedformer import DistributedFormer
-        return DistributedFormer
+    if name in ("CubeGPT", "DistributedFormer"):
+        from distributedformer.core import distributedformer as _core
+        return getattr(_core, name)
     if name == "KVStack":
         from distributedformer.core.distributedformer import KVStack
         return KVStack

@@ -1,5 +1,23 @@
 # 更新日志
 
+## v0.4.0 (2026-09-11)
+
+内嵌模型正式命名为 **CubeGPT** (cube = 立方体棱连接方式, GPT = 致敬 ChatGPT):
+
+### 新增
+- `CubeGPT` 模型类: 4 个模态面 (CubeFace) 构成立方体侧面, 以环形棱侧连
+  (每步将本面脉冲聚合注入邻面下一拍输入), 顶层 OutputModule 生成头部
+- 规模 (默认深度2): 4 面 × ~4,400 单元 × 16 参数 ≈ **281K 参数**
+  (精确: 4×4,384+16 = 17,552 单元 / 280,832 参数), `calculate_cube_scale()` 可查
+- CubeGPT 保持 v0.3.0 多模态 API 不变 (`step({模态: 数据})`),
+  未提供输入的面仍消费侧向脉冲 (持续思考)
+- 新增 tests/test_cube_gpt.py (9 项), 测试总计 30 项全绿
+
+### 变更
+- 智能体框架 (5 类智能体) 内嵌网络由 DistributedFormer 切换为 CubeGPT;
+  DistributedFormer 保留为训练基底 (trainer 的思考层监督实验仍基于它)
+- 推理智能体特殊化 (trend/anomaly) 改为作用于 CubeGPT 面皮层单元
+
 ## v0.3.0 (2026-09-11)
 
 多模态顶层模块化改造 (breaking change):

@@ -18,7 +18,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from distributedformer.core.distributedformer import (
-    DistributedFormer, SpikeMessage, SpikePayload, KVStack
+    CubeGPT, DistributedFormer, SpikeMessage, SpikePayload, KVStack
 )
 from distributedformer.codec.spike_codec import MultiModalCodec
 
@@ -40,7 +40,7 @@ class BaseSpikeAgent(ABC):
     """
     脉冲智能体基类
     
-    每个智能体 = Kimi Work Agent + DistributedFormer 实例
+    每个智能体 = Kimi Work Agent + CubeGPT 实例 (或训练用 DistributedFormer)
     
     角色类型:
     - perception: 感知智能体 (编码环境输入)
@@ -61,7 +61,7 @@ class BaseSpikeAgent(ABC):
         # DistributedFormer 实例 (推理智能体才有深度>0)
         self.df = None
         if df_depth >= 0:
-            self.df = DistributedFormer(depth=df_depth, dim=dim, kv_capacity=10000)
+            self.df = CubeGPT(depth=df_depth, dim=dim, kv_capacity=10000)
         
         # 共享KV堆 (外部注入或自建)
         self.kv_stack = kv_stack or KVStack(capacity=10000, dim=dim)
@@ -367,7 +367,7 @@ class ReasoningAgent(BaseSpikeAgent):
     """
     推理智能体
     
-    核心DistributedFormer网络，执行异步脉冲计算
+    核心CubeGPT网络，执行异步脉冲计算
     
     特性:
     - 内部可包含子推理智能体
@@ -395,14 +395,14 @@ class ReasoningAgent(BaseSpikeAgent):
         if specialization == "trend_analysis":
             # 趋势分析: 降低阈值，增加敏感性
             if self.df:
-                for layer in self.df.think_layers:
-                    for unit in layer.get_all_units():
+                for unit in self.df._all_units:
+                    if unit.unit_id.startswith(("think_", "face_")):
                         unit.threshold *= 0.8
         elif specialization == "anomaly_detection":
             # 异常检测: 提高阈值，减少误报
             if self.df:
-                for layer in self.df.think_layers:
-                    for unit in layer.get_all_units():
+                for unit in self.df._all_units:
+                    if unit.unit_id.startswith(("think_", "face_")):
                         unit.threshold *= 1.2
     
     def _process_spike(self, msg: SpikeMessage) -> List[SpikeMessage]:
