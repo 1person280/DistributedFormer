@@ -64,6 +64,7 @@ class LinearReadout:
     def __init__(self, n_features: int, n_classes: int = 4, lr: float = 0.1,
                  l2: float = 1e-3, epochs: int = 300, seed: int = 0):
         rng = np.random.RandomState(seed)
+        self.n_classes = n_classes
         self.W = rng.randn(n_classes, n_features + 1) * 0.01
         self.lr, self.l2, self.epochs = lr, l2, epochs
         self.mean_, self.scale_ = None, None
@@ -86,7 +87,7 @@ class LinearReadout:
             logits -= logits.max(axis=1, keepdims=True)
             prob = np.exp(logits)
             prob /= prob.sum(axis=1, keepdims=True)
-            grad = (prob - np.eye(4)[y])  # (n, C)
+            grad = (prob - np.eye(self.n_classes)[y])  # (n, C)
             self.W -= self.lr * (grad.T @ Xb) / n + self.l2 * self.W
         return self
 

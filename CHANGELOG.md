@@ -1,5 +1,26 @@
 # 更新日志
 
+## v0.6.0 (2026-09-11)
+
+真实数据基准起步, 解决"知识脱离实际"问题。首个基准: Rust coding 真实需求。
+
+### 新增
+- `distributedformer/data/rust_coding.py`: Rust Coding 基准数据集 v1 —
+  100 段真实风格 Rust 代码 × 5 类 (move E0382 / borrow E0502·E0499 /
+  lifetime E0597·E0106 / type E0308·E0277 / ok), 每条附真实 rustc
+  错误码与报错信息; 提供分层划分与静态扫描特征 (借用符/mut/生命周期符等)
+- `experiments/rust_benchmark.py` (实验 R2): CubeGPT (numeric+text 双面)
+  冻结特征 + 线性读出层, 5 种子验证准确率 **54.4% ± 5.4%**, 全部超过
+  随机基线 20% (报告: experiments/rust_report.md)
+
+### 修复
+- 文本编码器分词从 `\b[a-zA-Z]+\b` 改为代码感知分词 (保留 & ' -> ::
+  数字等代码关键 token); 词→维度哈希从进程随机的 `hash()` 改为 crc32
+  (跨进程可复现) — 两者对真实代码数据都是致命缺陷
+- `LinearReadout` 类数硬编码 4 → 泛化为任意类数
+- CubeFeatureExtractor 关闭自发率后重建向量化数组 (否则皮层仍有随机脉冲,
+  特征不可复现)
+
 ## v0.5.0 (2026-09-11)
 
 修复 README "已知问题" 的全部三项:

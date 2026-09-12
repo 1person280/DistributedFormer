@@ -68,8 +68,8 @@ class SpikeEncoder:
         if not text or not text.strip():
             return np.zeros(self.dim)
         
-        # 简单分词 (按非字母字符分割)
-        words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
+        # 代码感知分词 (v0.6.0): 保留 & ' -> :: 等代码关键 token
+        words = re.findall(r"[a-zA-Z_]+|&+|'|->|::|\d+", text.lower())
         if not words:
             return np.zeros(self.dim)
         
@@ -80,8 +80,9 @@ class SpikeEncoder:
         # 映射到维度
         dim_scores = defaultdict(float)
         for word, count in word_counts.items():
-            # 哈希到维度
-            dim_idx = hash(word) % self.dim
+            # 哈希到维度 (crc32, 跨进程确定)
+            import zlib
+            dim_idx = zlib.crc32(word.encode("utf-8")) % self.dim
             # TF-IDF近似: 词频 × 逆文档频率近似 (稀有词权重更高)
             tf = count / total
             # 使用词长近似IDF (长词更稀有)

@@ -10,7 +10,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.0-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.0-orange)](CHANGELOG.md)
 
 </div>
 
@@ -128,6 +128,21 @@ Pre0.1 归档了全部研发记录，包括**负结果**：在合成 4 分类股
 模型停留在随机水平附近。我们认为如实归档这些结果对这个方向的研究有价值。
 v0.2.0 的工程化重构（可安装包、CLI、测试、部署链路修复）不改变这一结论。
 
+## 真实数据基准: Rust Coding (v0.6.0)
+
+针对"训练监督以合成数据为主、知识脱离实际"的限制, 新增首个真实需求基准:
+**静态识别 Rust 代码命中的编译错误类别**——lints / IDE 提示 / 自动修复工具
+的基础能力。
+
+- **数据**: 100 段真实风格 Rust 代码 × 5 类 (所有权移动 E0382 / 借用冲突
+  E0502·E0499 / 生命周期 E0597·E0106 / 类型不匹配 E0308·E0277 / 合法代码),
+  每条附真实 rustc 错误码与报错信息, 见
+  [`distributedformer/data/rust_coding.py`](distributedformer/data/rust_coding.py)
+- **输入模态**: text (代码原文, 代码感知分词) + numeric (静态扫描特征)
+- **结果**: CubeGPT 读出层 5 种子验证准确率 **54.4% ± 5.4%**, 全部超过
+  随机基线 20%, 见 [`experiments/rust_report.md`](experiments/rust_report.md)
+- 复现: `python experiments/rust_benchmark.py`
+
 ## 路线图
 
 - [x] v0.2.0 — 产品化重构：可安装包 / CLI / serve 长驻服务 / 真实行情数据源 / 测试与 CI / 修复 Docker 链路
@@ -135,7 +150,9 @@ v0.2.0 的工程化重构（可安装包、CLI、测试、部署链路修复）�
 - [x] v0.4.0 — 内嵌模型正式命名为 **CubeGPT**（立方体棱连接，4 面 × 4,400 单元 ≈ 281K 参数），智能体框架全面切换
 - [x] v0.5.0 — 三项核心修复：KV 注意力接入主计算路径 / 训练方法学验证
   （读出层 64.8% vs 随机 25%，实验 R1）/ 真实桌面通知与 HTTP 动作
-- [ ] CubeGPT 端到端可学习：在真实多模态数据集上端到端训练（当前读出层范式已验证）
+- [x] v0.6.0 — 真实数据基准起步：Rust coding（100 段真实代码 × 5 类真实 rustc 错误），
+  读出层 54.4% vs 随机 20%；同步修复文本编码器的进程随机哈希（不可复现）与丢 token 问题
+- [ ] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路）
 - [ ] KV 堆注意力检索向量化（当前 python 循环打分，大堆场景有 scan_limit 限额）
 - [ ] 真实数据集基准（替代纯合成数据），建立有意义的评估基线
 - [ ] Redis 分布式 KV 堆在多节点工作流中实际启用
@@ -154,7 +171,9 @@ v0.2.0 的工程化重构（可安装包、CLI、测试、部署链路修复）�
 - ~~桌面通知 / API 调用为模拟~~ **已实现（v0.5.0）**：Windows 真实系统通知
   （PowerShell toast，`DF_NOTIFY_MODE=sim` 可切回打印）；真实 HTTP POST
   （stdlib urllib，endpoint 或 `DF_WEBHOOK_URL` 配置，10s 超时，失败降级不中断）。
-- 保留的已知限制：训练监督仍以合成数据为主，真实数据集基准在路线图中。
+- ~~训练监督以合成数据为主~~ **已起步（v0.6.0）**：新增 Rust coding 真实需求
+  基准（真实代码 + 真实 rustc 错误类别），读出层 54.4% vs 随机 20%；扩展更多
+  真实数据集与真实代码语料仍在路线图中。
 
 ## 文档
 
