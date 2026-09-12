@@ -16,6 +16,7 @@ DistributedFormer: 分布式脉冲神经网络核心
 
 import numpy as np
 import json
+import os
 import time
 from typing import Dict, List, Tuple, Optional, Callable, Any
 
@@ -979,6 +980,9 @@ class CubeGPT:
             m: CubeFace(m, depth=depth, dim=dim) for m in mods
         }
 
+        # v0.7.0 随用随载注册表: 模态 → .dfpkg 路径 (面未加载, 用到时热加载)
+        self._face_registry: Dict[str, str] = {}
+
         # 顶层输出头部
         self.output_module = OutputModule(dim=dim)
 
@@ -1070,9 +1074,15 @@ class CubeGPT:
                 f"例如 {{'numeric': 1.5, 'text': '...'}}; 收到 {type(inputs).__name__}"
             )
         unknown = set(inputs) - set(self.faces)
+        # v0.7.0 随用随载: 输入用到已注册 pkg 的未加载面时, 现场热加载
+        for m in list(unknown):
+            if m in self._face_registry:
+                self.load_face(m)
+                unknown.discard(m)
         if unknown:
             raise KeyError(
-                f"未知输入模态 {sorted(unknown)}, 已启用: {list(self.faces)}"
+                f"未知输入模态 {sorted(unknown)}, 已启用: {list(self.faces)}, "
+                f"已注册待载: {sorted(set(self._face_registry) - set(self.faces))}"
             )
 
         # KV 注意力检索 (v0.5.0 接入主路径): 以上一拍融合输入为查询
@@ -1156,6 +1166,58 @@ class CubeGPT:
         self.cycle_phase = 0
         self.global_modulation = 1.0
         self.total_steps = 0
+
+    # ── v0.7.0 模态面独立化: pkg 存档与随用随载热加载 ──────────
+
+    def _rebuild_ring(self) -> None:
+        """按立方体侧面顺序重建环形棱 (加载/卸载面后调用)"""
+        self.ring = [m for m in self.CUBE_RING if m in self.faces]
+
+    def export_face(self, modality: str, path: str, **manifest_kwargs) -> Dict:
+        """把一个模态面导出为 .dfpkg 存档 (manifest + weights + memory)"""
+        from . import face_pkg
+        return face_pkg.export_face(self, modality, path, **manifest_kwargs)
+
+    def import_face(self, path: str, modality: Optional[str] = None) -> Dict:
+        """导入 .dfpkg: 替换同模态面或新增模态面 (自由导出导入的另一半)"""
+        from . import face_pkg
+        return face_pkg.import_face(self, path, modality)
+
+    def register_face_pkg(self, path: str, modality: Optional[str] = None) -> Dict:
+        """注册 pkg 到随用随载注册表 (只记路径, 不加载权重)"""
+        from . import face_pkg
+        return face_pkg.register_pkg(self, path, modality)
+
+    def unload_face(self, modality: str, pkg_path: Optional[str] = None) -> str:
+        """卸载模态面释放内存; 默认先自动导出 pkg 保证可恢复 (随用随载)"""
+        if modality not in self.faces:
+            raise KeyError(f"模态面 {modality!r} 未加载")
+        from . import face_pkg
+        if pkg_path is None:
+            pkg_path = os.path.join(
+                "face_pkgs", f"{modality}{face_pkg.DFPKG_SUFFIX}")
+        face_pkg.export_face(self, modality, pkg_path)
+        del self.faces[modality]
+        self._rebuild_ring()
+        self._build_units_map()
+        self._face_registry[modality] = pkg_path
+        return pkg_path
+
+    def load_face(self, modality: str, pkg_path: Optional[str] = None) -> Dict:
+        """从 pkg 热加载一个模态面 (注册表里的路径或显式路径)"""
+        path = pkg_path or self._face_registry.get(modality)
+        if not path:
+            raise KeyError(
+                f"模态 {modality!r} 无已注册的 pkg, "
+                f"请先 register_face_pkg() 或传入 pkg_path")
+        return self.import_face(path, modality)
+
+    def list_faces(self) -> Dict[str, List[str]]:
+        """已加载 / 已注册未加载的模态面"""
+        return {
+            "loaded": list(self.faces),
+            "registered": [m for m in self._face_registry if m not in self.faces],
+        }
 
 
 class DistributedFormer:

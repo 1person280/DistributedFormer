@@ -7,7 +7,7 @@ DistributedFormer — 事件驱动的脉冲神经网络智能体框架
 持续在线场景。
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "__version__",
@@ -17,6 +17,9 @@ __all__ = [
     "SpikingUnit",
     "SpikeMessage",
     "MultiModalCodec",
+    "export_face",
+    "import_face",
+    "read_manifest",
 ]
 
 
@@ -37,4 +40,7 @@ def __getattr__(name):
     if name == "MultiModalCodec":
         from distributedformer.codec.spike_codec import MultiModalCodec
         return MultiModalCodec
+    if name in ("export_face", "import_face", "read_manifest"):
+        from distributedformer.core import face_pkg
+        return getattr(face_pkg, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

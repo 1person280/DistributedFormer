@@ -1,5 +1,35 @@
 # 更新日志
 
+## v0.7.0 (2026-09-13)
+
+模态面独立化与 pkg 存档: 每个模态面成为可独立打包、传输、加载的单元,
+支持随用随载热加载与自由导入导出。
+
+### 新增
+- `distributedformer/core/face_pkg.py`: 模态面 pkg 存档 `.dfpkg` —
+  遵循 CuteMamen 插件规范 v0.1.0 包格式精神 (单个 tar.gz:
+  manifest.json 清单 + weights/ 权重 + memory/ 记忆状态)。
+  权重 (16 标量参数 + STDP 后小世界连接) 与状态 (state/fatigue/
+  refractory/学习计数) 逐位可复现; 感受野投影由 layer_id 的 crc32
+  种子重建, 无需存档
+- CubeGPT 面 pkg API:
+  - `export_face(modality, path)`: 打包单个模态面为独立存档
+  - `import_face(path)`: 导入/替换模态面 (可跨模型、可换模态名)
+  - `unload_face(modality)`: 卸载释放内存, 默认先自动导出 pkg 保证可恢复
+  - `register_face_pkg(path)` + `load_face(modality)`: 随用随载注册表
+  - `step()` 热加载: 输入用到已注册未加载的模态时现场加载后常驻
+  - `list_faces()`: 已加载 / 已注册未加载视图
+  - `min_core_version` 兼容性检查 (内核过旧拒绝加载, CuteMamen §11)
+- 路线图收录 **CuteMamen 插件标准 v0.1.0** (通用固定内核 + .CuteMamen
+  专家插件包 + 生命周期钩子 + 三级记忆存档 + 事件总线 + 内存预算淘汰
+  + LoRA/Adapter 兼容桥接); v0.7.0 的模态面 pkg 是其首个特例
+
+### 修复
+- **训练报告占位符** (已知问题清单最后一项): `report_generate` 动作
+  原先对每个章节只写 `[自动生成内容占位]`, 现渲染真实统计数据 —
+  智能体状态 (脉冲收发/周期) / CubeGPT 网络统计 (各面单元/脉冲/节律) /
+  KV 堆记忆 (用量/利用率/访问) / STDP 学习统计, 支持章节自由组合
+
 ## v0.6.0 (2026-09-11)
 
 真实数据基准起步, 解决"知识脱离实际"问题。首个基准: Rust coding 真实需求。

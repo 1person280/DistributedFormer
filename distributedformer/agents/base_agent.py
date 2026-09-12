@@ -629,25 +629,73 @@ class ActionAgent(BaseSpikeAgent):
             return {"status": "error", "type": "api_call", "endpoint": endpoint,
                     "error": str(e)[:200]}
 
+    # 支持的章节 → 数据源 (章节名可自由组合, 未知章节降级为提示而非占位)
+    REPORT_SECTIONS = ("summary", "network", "memory", "learning")
+
+    def _render_report_section(self, section: str) -> str:
+        """把真实统计数据渲染为 Markdown, 无占位符"""
+        if section in ("summary", "state"):
+            stats = self.get_stats()
+            lines = [
+                f"- 智能体: {stats['agent_id']} ({stats['agent_type']})",
+                f"- 状态: {stats['status']}, 周期数 {stats['cycles']}",
+                f"- 脉冲: 收 {stats['spikes_received']} / 发 {stats['spikes_sent']}"
+                f" (inbox {stats['inbox_size']}, outbox {stats['outbox_size']})",
+            ]
+            if stats.get("specialization"):
+                lines.append(f"- 专项: {stats['specialization']}")
+            return "\n".join(lines)
+        if section in ("network", "cortex"):
+            if not self.df:
+                return "本智能体无内嵌 CubeGPT 网络, 无网络数据。"
+            s = self.df.get_network_stats()
+            lines = [
+                f"- 模型: {s['model']}, 深度 {s['depth']}, 面: {s['faces']}",
+                f"- 规模: {s['total_units']} 单元 / {s['total_params']} 参数",
+                f"- 累计脉冲: {s['total_spikes']}, 步数: {s['total_steps']}",
+                f"- 节律: 相位 {s['cycle_phase']}, 调制 {s['global_modulation']:.3f}",
+            ]
+            for name, fs in s.get("faces_stats", {}).items():
+                lines.append(
+                    f"- 面 {name}: {fs['cortex_units']} 皮层单元, "
+                    f"累计 {fs['total_spikes']} 脉冲, 上拍 {fs['last_step_spikes']}"
+                )
+            return "\n".join(lines)
+        if section in ("memory", "kv"):
+            s = self.kv_stack.get_stats()
+            lines = [
+                f"- 使用: {s['used']}/{s['capacity']} 条"
+                f" (利用率 {s['utilization']:.1%})",
+                f"- 累计访问: {s['total_access']}",
+            ]
+            return "\n".join(lines)
+        if section in ("learning", "stdp"):
+            if not self.df:
+                return "本智能体无内嵌 CubeGPT 网络, 无学习数据。"
+            s = self.df.get_stdp_stats()
+            return "\n".join(
+                f"- {k}: {v}" for k, v in s.items()
+            )
+        return f"未知章节 {section!r}, 可选: {list(self.REPORT_SECTIONS)}"
+
     def _do_report_generate(self, action: Dict) -> Dict:
-        """生成报告"""
+        """生成报告 (真实统计数据, 无占位符)"""
         template = action.get("template", "daily_pulse")
         sections = action.get("sections", ["summary"])
-        
+
         report_path = f"reports/{template}_{int(time.time())}.md"
-        
+
         content = f"""# {template.replace('_', ' ').title()} Report
 
 生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}
-
-## 章节
+生成者: {self.agent_id} ({self.agent_type})
 """
         for section in sections:
-            content += f"\n### {section.title()}\n\n[自动生成内容占位]\n"
-        
+            content += f"\n### {section.title()}\n\n{self._render_report_section(section)}\n"
+
         import os
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
-        
+
         try:
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(content)
