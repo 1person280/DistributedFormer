@@ -30,38 +30,7 @@ from distributedformer.core.distributedformer import CubeGPT
 from distributedformer.data.rust_coding import (
     LABELS, LABEL_NAMES, load_rust_coding, static_metrics, stratified_split
 )
-from distributedformer.training.readout import LinearReadout
-
-
-class CubeFeatureExtractor:
-    """用冻结 CubeGPT 把多模态样本映射为特征向量"""
-
-    def __init__(self, depth: int = 1, dim: int = 16, seed: int = 0):
-        np.random.seed(seed)
-        self.net = CubeGPT(depth=depth, dim=dim, training_mode=True,
-                           modalities=["numeric", "text"])
-        self.net.enable_learning(False)
-        for u in self.net._all_units:
-            u.spontaneous_rate = 0.0
-        # 重建向量化数组, 使关闭后的自发率生效 (否则皮层仍有随机脉冲)
-        for face in self.net.faces.values():
-            face.cortex._build_vec_arrays()
-
-    def features(self, inputs: dict, steps: int = 2) -> np.ndarray:
-        self.net.reset_state()
-        for _ in range(steps):
-            self.net.step(inputs)
-        parts = []
-        for face in self.net.faces.values():
-            layer = face.cortex
-            if hasattr(layer, "_vec_state") and layer.N > 0:
-                parts.append(np.abs(layer._vec_state).mean(axis=1))
-            else:
-                parts.append(np.array([abs(u.state).mean()
-                                       for u in layer._all_units_cache]))
-            parts.append(face.port.get_pattern())
-        parts.append(self.net.get_output_pattern())
-        return np.concatenate(parts)
+from distributedformer.training.readout import CubeFeatureExtractor, LinearReadout
 
 
 def run_benchmark(seed: int, verbose: bool = False) -> dict:

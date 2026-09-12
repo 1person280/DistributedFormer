@@ -55,7 +55,7 @@ def test_text_encoder_code_aware_and_deterministic():
 
 
 def test_feature_pipeline_and_readout():
-    from experiments.rust_benchmark import CubeFeatureExtractor
+    from distributedformer.training.readout import CubeFeatureExtractor
     samples = load_rust_coding()[:10]
     ex = CubeFeatureExtractor(depth=1, seed=0)
     F = np.stack([ex.features({

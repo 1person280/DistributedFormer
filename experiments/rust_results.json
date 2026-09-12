@@ -10,45 +10,30 @@
     "type",
     "ok"
   ],
-  "val_acc_mean": 0.544,
-  "val_acc_std": 0.05425863986500215,
-  "val_acc_min": 0.48,
-  "val_acc_max": 0.64,
+  "val_acc_mean": 0.5760000000000001,
+  "val_acc_std": 0.10307278981380102,
+  "val_acc_min": 0.4,
+  "val_acc_max": 0.68,
   "random_baseline": 0.2,
   "beats_random_all_seeds": true,
   "results": [
     {
       "seed": 0,
       "train_accuracy": 1.0,
-      "val_accuracy": 0.52,
+      "val_accuracy": 0.64,
       "random_baseline": 0.2,
       "beats_random": true,
       "per_class_val_accuracy": {
-        "move": 0.6,
-        "borrow": 0.4,
-        "lifetime": 0.8,
-        "type": 0.4,
-        "ok": 0.4
-      },
-      "extract_seconds": 1.8081598281860352
-    },
-    {
-      "seed": 1,
-      "train_accuracy": 1.0,
-      "val_accuracy": 0.48,
-      "random_baseline": 0.2,
-      "beats_random": true,
-      "per_class_val_accuracy": {
-        "move": 0.2,
+        "move": 0.4,
         "borrow": 0.8,
         "lifetime": 1.0,
         "type": 0.4,
-        "ok": 0.0
+        "ok": 0.6
       },
-      "extract_seconds": 1.6392371654510498
+      "extract_seconds": 1.4560115337371826
     },
     {
-      "seed": 2,
+      "seed": 1,
       "train_accuracy": 1.0,
       "val_accuracy": 0.52,
       "random_baseline": 0.2,
@@ -60,37 +45,52 @@
         "type": 0.4,
         "ok": 0.2
       },
-      "extract_seconds": 1.621845006942749
+      "extract_seconds": 1.0522959232330322
     },
     {
-      "seed": 3,
+      "seed": 2,
       "train_accuracy": 1.0,
-      "val_accuracy": 0.56,
+      "val_accuracy": 0.4,
       "random_baseline": 0.2,
       "beats_random": true,
       "per_class_val_accuracy": {
-        "move": 0.8,
-        "borrow": 0.6,
-        "lifetime": 0.6,
+        "move": 0.0,
+        "borrow": 0.8,
+        "lifetime": 0.8,
         "type": 0.4,
-        "ok": 0.4
+        "ok": 0.0
       },
-      "extract_seconds": 1.640476942062378
+      "extract_seconds": 1.1580264568328857
     },
     {
-      "seed": 4,
+      "seed": 3,
       "train_accuracy": 1.0,
       "val_accuracy": 0.64,
       "random_baseline": 0.2,
       "beats_random": true,
       "per_class_val_accuracy": {
-        "move": 0.4,
-        "borrow": 1.0,
+        "move": 1.0,
+        "borrow": 0.4,
         "lifetime": 0.8,
         "type": 0.6,
         "ok": 0.4
       },
-      "extract_seconds": 3.7736995220184326
+      "extract_seconds": 1.1415579319000244
+    },
+    {
+      "seed": 4,
+      "train_accuracy": 1.0,
+      "val_accuracy": 0.68,
+      "random_baseline": 0.2,
+      "beats_random": true,
+      "per_class_val_accuracy": {
+        "move": 0.8,
+        "borrow": 1.0,
+        "lifetime": 0.8,
+        "type": 0.4,
+        "ok": 0.4
+      },
+      "extract_seconds": 1.058638334274292
     }
   ]
 }
