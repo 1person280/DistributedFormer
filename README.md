@@ -119,6 +119,172 @@ gpt2.import_face("text.dfpkg")             # 权重 + 状态逐位还原
 兼容性检查（内核过旧拒绝加载）。权重与状态逐位可复现：感受野投影由 layer_id
 的 crc32 种子重建，小世界连接随 STDP 训练后的真值一起存档。
 
+## CuteMamen 插件标准
+
+本项目实现了 **CuteMamen 插件标准** —— 一种轻量级、模块化的 AI 系统架构。
+
+> 完整兼容性规范见 [COMPATIBILITY.md](./COMPATIBILITY.md)
+
+### 架构哲学
+
+不同于每次请求都激活全部参数的单体模型，CuteMamen 采用了一种根本不同的方式：
+
+- **N 个独立训练的专家插件** —— 每个插件是一个自包含的、面向特定任务的模块
+- **一个轻量级固定内核（Nest）** —— 仅负责路由、生命周期管理和内存调度
+- **可热加载的 `.CuteMamen` 插件包** —— 插件可在运行时加载、卸载和替换，无需重启宿主系统
+
+只有被激活的插件消耗算力，空闲的专家零成本。
+
+### 成本优势
+
+| 方案 | 每万亿输出 token 成本 |
+|------|---------------------|
+| 单体 Transformer（如 DeepSeek） | ~$1,500,000 |
+| CuteMamen Rust 插件 | ~$1.5 |
+
+这不是渐进式优化 —— 而是**六个数量级**的架构差异，通过彻底消除空闲计算实现。
+
+### 兼容性策略
+
+#### 解码器层集中兼容
+
+所有向前/向后兼容逻辑集中在单一层 —— **解码器**，其他模块无需感知插件版本。
+
+```text
+v1 插件 → 解码器（翻译为内部统一格式）→ 内核 → 各模块
+v2 插件 → 解码器（直接透传，零开销）  → 内核 → 各模块
+v3 插件 → 解码器（直接透传，零开销）  → 内核 → 各模块
+```
+
+- **内核和各模块**永远只看到一种内部格式，对版本无感知
+- **旧插件**只要解码器保留适配逻辑就能继续运行
+- **新插件**不经过任何翻译层，性能无损
+- **移除旧版支持**只需删除解码器中的一个函数，其他代码一行不动
+
+#### 标准演进规则
+
+当标准发生演进时（如 CuteMamen v1 → v2）：
+
+1. **允许破坏性变更** —— 新标准可以丢弃遗留字段、简化接口
+2. **解码器吸收迁移成本** —— 通过 `manifest.json` 检测插件版本并自动适配
+3. **提供迁移工具** —— `migrate-v1-to-v2` 自动转换旧版插件包
+4. **公布废弃时间窗口** —— 旧插件触发警告，附带明确的停止支持日期
+
+> **原则：可以往插座上多加孔，但不能把已有的孔堵上。**
+> 新增字段和钩子永远欢迎。删除或修改已有契约需要版本号升级，并在解码器层做适配。
+
+### 与 Transformer 系统的集成
+
+CuteMamen 设计了多种与现有 Transformer 架构兼容的集成路径：
+
+- **LoRA 适配器映射** —— 每个 `.CuteMamen` 插件映射为一个 LoRA 适配器，Transformer 基础模型充当内核
+- **外部服务桥接** —— 插件作为独立进程运行，通过标准 API（OpenAI 兼容或 gRPC）调用
+- **MoE 专家注册** —— 插件注册为可动态加载的混合专家（MoE）单元，在推理时按需调度
+
+任何声称"CuteMamen 兼容"的系统，必须实现生命周期钩子（`on_load`、`on_unload`、`on_think`），遵守 `manifest.json` 格式规范，并支持 `.CuteMamen` 插件包格式。完整规范见 [COMPATIBILITY.md](./COMPATIBILITY.md)。
+
+---
+
+## 迁移工具：migrate-v1-to-v2
+
+用于将 CuteMamen v1 插件包自动迁移至 v2 标准的命令行工具。
+
+### 基本用法
+
+```bash
+# 迁移单个插件
+migrate-v1-to-v2 ./my-plugin.CuteMamen
+
+# 迁移整个目录下的所有插件
+migrate-v1-to-v2 ./plugins/ --recursive
+
+# 指定输出目录（不覆盖原文件）
+migrate-v1-to-v2 ./my-plugin.CuteMamen --output ./migrated/
+
+# 预览模式（只检查，不实际修改）
+migrate-v1-to-v2 ./my-plugin.CuteMamen --dry-run
+```
+
+### 完整参数列表
+
+| 参数 | 缩写 | 说明 | 默认值 |
+|------|------|------|--------|
+| `--output <dir>` | `-o` | 输出目录，不指定则覆盖原文件 | 覆盖原文件 |
+| `--recursive` | `-r` | 递归处理目录下所有 `.CuteMamen` 文件 | 否 |
+| `--dry-run` | `-n` | 预览模式，只报告变更内容，不实际写入 | 否 |
+| `--verbose` | `-v` | 显示详细的迁移日志 | 否 |
+| `--strict` | | 严格模式：遇到无法自动迁移的字段直接报错退出 | 否（默认跳过并警告） |
+| `--backup` | `-b` | 迁移前自动备份原文件为 `.CuteMamen.bak` | 否 |
+| `--from <version>` | | 指定源版本号（默认自动检测） | 自动检测 |
+| `--to <version>` | | 指定目标版本号 | `2.0.0` |
+
+### 输出示例
+
+#### 正常迁移
+
+```text
+$ migrate-v1-to-v2 ./plugins/ -r -v
+
+[1/3] Migrating: plugins/text-gen.CuteMamen
+  ✓ manifest.json: standard_version 1.2.0 → 2.0.0
+  ✓ manifest.json: renamed field "model_type" → "base_model"
+  ✓ manifest.json: removed deprecated field "legacy_mode"
+  ✓ lifecycle: renamed hook "on_init" → "on_load"
+  ✓ lifecycle: added missing hook "on_unload" (stub)
+  ✓ packaged: plugins/text-gen.CuteMamen (v2)
+
+[2/3] Migrating: plugins/code-review.CuteMamen
+  ✓ manifest.json: standard_version 1.0.3 → 2.0.0
+  ✓ manifest.json: renamed field "model_type" → "base_model"
+  ⚠ lifecycle: hook "on_warmup" not found in v1, skipped
+  ✓ packaged: plugins/code-review.CuteMamen (v2)
+
+[3/3] Migrating: plugins/old-vision.CuteMamen
+  ✗ manifest.json: field "pipeline_config" has no v2 equivalent
+    → Use --strict to fail on unresolvable fields
+    → Manual migration required for this plugin
+
+Done. 2 migrated, 1 needs manual intervention.
+```
+
+#### 预览模式
+
+```text
+$ migrate-v1-to-v2 ./my-plugin.CuteMamen --dry-run
+
+[DRY RUN] No files will be modified.
+
+Would apply the following changes to my-plugin.CuteMamen:
+  - manifest.json: standard_version "1.2.0" → "2.0.0"
+  - manifest.json: rename "model_type" → "base_model"
+  - manifest.json: remove "legacy_mode" (deprecated)
+  - lifecycle: rename "on_init" → "on_load"
+  - lifecycle: inject stub "on_unload"
+
+No errors. Safe to migrate.
+```
+
+### 迁移规则清单
+
+工具内部按以下规则逐条执行：
+
+| 变更类型 | v1 | v2 | 处理方式 |
+|---------|-----|-----|---------|
+| 字段重命名 | `model_type` | `base_model` | 自动重命名 |
+| 字段删除 | `legacy_mode` | （已移除） | 自动删除，记录警告 |
+| 钩子重命名 | `on_init` | `on_load` | 自动重命名 |
+| 钩子新增 | （不存在） | `on_unload` | 自动注入空实现 |
+| 版本号更新 | `1.x.x` | `2.0.0` | 自动更新 |
+| 无法映射的字段 | 自定义字段 | 无对应 | 跳过并警告（`--strict` 下报错） |
+
+### 退出码
+
+| 退出码 | 含义 |
+|--------|------|
+| `0` | 全部迁移成功 |
+| `1` | 部分插件需要手动迁移 |
+| `2` | 严重错误（文件不存在、格式损坏等） |
+
 ## Docker 部署
 
 ```bash
