@@ -19,3 +19,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Additional Terms: CuteMamen Compatibility Statement
+
+This software implements the CuteMamen Plugin Standard (the "Standard").
+Any third-party system, framework, or model (including but not limited to
+Transformer-based architectures) that wishes to interoperate with plugins
+distributed under this Standard must comply with the interface specifications
+defined in COMPATIBILITY.md.
+
+Specifically:
+
+1. Plugin Interface Compliance: Any system integrating CuteMamen plugins
+   must implement the Standard's plugin lifecycle hooks (on_load, on_unload,
+   on_think) and the Side-Connection Interface ("棱接口") as defined in the
+   Standard specification.
+
+2. Packaging Compliance: Any system that loads, unloads, or distributes
+   .CuteMamen plugin packages must respect the manifest.json schema,
+   including version, dependency, and capability declarations.
+
+3. Attribution: Systems that integrate with the CuteMamen Standard should
+   acknowledge compatibility in their documentation (e.g.,
+   "CuteMamen-compatible" or "Supports .CuteMamen plugins").
+
+4. Non-Restriction: These additional terms do not restrict any rights
+   granted under the MIT License above. They apply only to systems seeking
+   interoperability with the CuteMamen plugin ecosystem.
