@@ -7,7 +7,7 @@ DistributedFormer — 事件驱动的脉冲神经网络智能体框架
 持续在线场景。
 """
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 __all__ = [
     "__version__",

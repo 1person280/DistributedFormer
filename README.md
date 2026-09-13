@@ -69,7 +69,9 @@ dformer train --depth 1 --epochs 10
 
 # 模块自检
 dformer test
-```
+
+# 终端聊天: 与 CubeGPT 对话 (v0.7.1)
+dformer chat
 
 作为库使用（v0.3.0 多模态 API）：
 

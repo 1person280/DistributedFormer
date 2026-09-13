@@ -6,6 +6,7 @@ DistributedFormer 命令行入口
   serve     长驻监控服务 (容器/生产部署入口, 支持 --realtime 真实行情)
   train     运行合成数据训练
   test      运行各模块自检
+  chat      终端聊天: 与 CubeGPT 对话
 """
 
 import argparse
@@ -91,6 +92,12 @@ def cmd_train(args):
     print(f"\n最佳验证准确率: {summary['best_val_accuracy']:.2%}")
 
 
+def cmd_chat(args):
+    """终端聊天: 与 CubeGPT 对话 (v0.7.1)"""
+    from distributedformer.demos.chat import run_chat
+    run_chat(depth=args.depth, dim=args.dim)
+
+
 def cmd_test(args):
     from distributedformer.selfcheck import run_full_test_suite
     run_full_test_suite()
@@ -126,6 +133,12 @@ def build_parser():
     p_train.add_argument("--seed", type=int, default=42)
     p_train.add_argument("--save-dir", default="training/checkpoints")
     p_train.set_defaults(func=cmd_train)
+
+    p_chat = sub.add_parser("chat", help="终端聊天: 与 CubeGPT 对话")
+    p_chat.add_argument("--depth", type=int, default=2, choices=[0, 1, 2],
+                        help="CubeGPT 深度 (默认 2)")
+    p_chat.add_argument("--dim", type=int, default=16)
+    p_chat.set_defaults(func=cmd_chat)
 
     p_test = sub.add_parser("test", help="运行模块自检")
     p_test.set_defaults(func=cmd_test)

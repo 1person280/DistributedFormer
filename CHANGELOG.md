@@ -1,5 +1,22 @@
 # 更新日志
 
+## v0.7.1 (2026-09-13)
+
+终端聊天: `dformer chat` 与 CubeGPT 直接对话。
+
+### 新增
+- `distributedformer/demos/chat.py`: CubeGPT 终端聊天 REPL —
+  用户输入喂进 text 面, 每回合跑 8 步 (环形棱把活动传导到
+  numeric/timeseries/image 面), 由输出头部脉冲模式驱动回复
+- `dformer chat [--depth 0|1|2]`: CLI 子命令
+- 回复如实反映网络内部状态 (输出脉冲数 / 模式能量 / 主活跃面 /
+  KV 用量); CubeGPT 目前是脉冲 reservoir, 尚无语言生成头,
+  回复由活动强度分级模板生成, 不伪装成自然语言
+- 交互命令: `/reset` (清空网络与 KV 记忆) `/stats` (各面脉冲 /
+  KV 堆 / STDP 统计) `/help` `/exit`
+- 对话期间 STDP 在线学习持续进行
+- `tests/test_chat.py`: 回合逻辑 / 状态累积 / reset / stats 测试
+
 ## v0.7.0 (2026-09-13)
 
 模态面独立化与 pkg 存档: 每个模态面成为可独立打包、传输、加载的单元,
