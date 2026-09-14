@@ -27,12 +27,11 @@ def main(ctx):
         sys.path.insert(0, workspace)
     
     from distributedformer.training.trainer import DFTrainer
-    from distributedformer.training.data_generator import StockTrainingDataset
+    from distributedformer.data.real_dataset import RustCodingTrainingDataset
     from distributedformer.core.distributedformer import calculate_scale
     
     EPOCHS = 3
-    SEED = 42
-    SAMPLES = 20  # 统一样本量，隔离深度和监督变量
+    SEED = 42  # 分层划分种子 (真实语料 75/25)
     
     experiments = [
         {"name": "E1_Baseline",    "depth": 1, "think_supervision": False, "color": "#3498db"},
@@ -46,7 +45,7 @@ def main(ctx):
     print("=" * 70)
     print("  DistributedFormer 消融对比实验 (快速版)")
     print("=" * 70)
-    print(f"  固定: epochs={EPOCHS}, samples_per_class={SAMPLES}, seed={SEED}")
+    print(f"  固定: epochs={EPOCHS}, 真实语料 75/25 分层划分, seed={SEED}")
     print("=" * 70)
     
     for exp in experiments:
@@ -54,8 +53,8 @@ def main(ctx):
         print(f"  [{exp['name']}] depth={exp['depth']}, think_super={'ON' if exp['think_supervision'] else 'OFF'}")
         print(f"{'─' * 60}")
         
-        dataset = StockTrainingDataset(dim=16, seed=SEED)
-        train, val = dataset.generate_dataset(samples_per_class=SAMPLES, train_ratio=0.8)
+        dataset = RustCodingTrainingDataset(dim=16)
+        train, val = dataset.generate_dataset(train_ratio=0.75, seed=SEED)
         
         trainer = DFTrainer(
             depth=exp["depth"],

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from distributedformer.core.distributedformer import DistributedFormer
-from distributedformer.training.data_generator import TrainingSample, StockTrainingDataset
+from distributedformer.data.real_dataset import TrainingSample, RustCodingTrainingDataset
 
 
 @dataclass
@@ -51,12 +51,14 @@ class SpikeSupervisedLoss:
     
     def __init__(self, dim: int = 16, alpha: float = 1.0, 
                  beta: float = 2.0, gamma: float = 1.5,
-                 delta: float = 0.5):  # delta: 思考层对齐权重
+                 delta: float = 0.5,
+                 n_classes: int = 5):  # delta: 思考层对齐权重
         self.dim = dim
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
         self.delta = delta
+        self.n_classes = n_classes
     
     def compute(self, output_pattern: np.ndarray, 
                 target_pattern: np.ndarray,
@@ -67,12 +69,13 @@ class SpikeSupervisedLoss:
         rate_error = (actual_spike_count - target_spike_count) ** 2
         rate_loss = rate_error / max(target_spike_count ** 2, 1)
         
-        # 2. 目标维度激活损失 (输出层前4维)
-        target_dims = target_pattern[:4]
-        actual_dims = output_pattern[:4]
+        # 2. 目标维度激活损失 (输出层前 n_classes 维)
+        n = self.n_classes
+        target_dims = target_pattern[:n]
+        actual_dims = output_pattern[:n]
         
         activation_loss = 0.0
-        for i in range(4):
+        for i in range(n):
             if target_dims[i] > 0.3:
                 gap = max(0, target_dims[i] - actual_dims[i])
                 activation_loss += gap ** 2
@@ -87,7 +90,7 @@ class SpikeSupervisedLoss:
         # 4. 思考层表征对齐损失 (v5.2新增)
         # 希望思考层中对应类别的神经元群体激活更高
         think_align_loss = 0.0
-        for i in range(4):
+        for i in range(self.n_classes):
             if target_pattern[i] > 0.3:
                 # 目标类别对应维度的思考层激活应较高
                 think_align_loss += max(0, 0.5 - think_pattern[i]) ** 2
@@ -111,9 +114,9 @@ class SpikeSupervisedLoss:
     def compute_accuracy(self, output_pattern: np.ndarray, 
                          target_category: int,
                          threshold: float = 0.3) -> bool:
-        top4 = output_pattern[:4]
-        predicted = int(np.argmax(top4))
-        return predicted == target_category and top4[predicted] >= threshold
+        top = output_pattern[:self.n_classes]
+        predicted = int(np.argmax(top))
+        return predicted == target_category and top[predicted] >= threshold
 
 
 class DFTrainer:
@@ -125,13 +128,16 @@ class DFTrainer:
                  learning_rate: float = 0.008,
                  super_modulation: float = 0.25,
                  think_lr: float = 0.003,  # 思考层学习率 (较低)
-                 use_think_supervision: bool = True):  # 是否启用思考层监督
+                 use_think_supervision: bool = True,  # 是否启用思考层监督
+                 n_classes: int = 5):  # 真实类别数 (rustc 错误族)
         self.depth = depth
         self.dim = dim
         self.lr = learning_rate
         self.think_lr = think_lr
         self.super_mod = super_modulation
         self.use_think_supervision = use_think_supervision
+        self.n_classes = n_classes
+        self.category_names = list(RustCodingTrainingDataset.CATEGORIES)
         
         # 网络 (训练模式: 跳过KV查询以加速)
         # depth>=2 时用单层大思考层; depth=1 时用3层小思考层
@@ -147,7 +153,8 @@ class DFTrainer:
         
         # 损失函数: 若不用思考层监督，delta=0
         loss_delta = 0.5 if use_think_supervision else 0.0
-        self.loss_fn = SpikeSupervisedLoss(dim=dim, delta=loss_delta)
+        self.loss_fn = SpikeSupervisedLoss(dim=dim, delta=loss_delta,
+                                           n_classes=self.n_classes)
         
         self.epoch = 0
         self.global_step = 0
@@ -181,10 +188,10 @@ class DFTrainer:
                 all_units = layer._all_units_cache
                 n_units = len(all_units)
                 
-                # 将思考层单元分为4组 (对应4个类别)
-                group_size = max(1, n_units // 4)
+                # 将思考层单元分组 (对应 n_classes 个类别)
+                group_size = max(1, n_units // self.n_classes)
                 
-                for cat in range(4):
+                for cat in range(self.n_classes):
                     if target_pattern[cat] > 0.3:
                         # 目标类别: 降低阈值、增加增益
                         start_idx = cat * group_size
@@ -246,9 +253,9 @@ class DFTrainer:
             for layer in self.df.think_layers:
                 all_units = layer._all_units_cache
                 n_units = len(all_units)
-                group_size = max(1, n_units // 4)
+                group_size = max(1, n_units // self.n_classes)
                 
-                for cat in range(4):
+                for cat in range(self.n_classes):
                     error = target_pattern[cat] - think_pattern[cat]
                     if abs(error) > 0.05:
                         start_idx = cat * group_size
@@ -349,8 +356,8 @@ class DFTrainer:
         correct = 0
         total_spikes = 0
         
-        per_class_correct = {0: 0, 1: 0, 2: 0, 3: 0}
-        per_class_total = {0: 0, 1: 0, 2: 0, 3: 0}
+        per_class_correct = {c: 0 for c in range(self.n_classes)}
+        per_class_total = {c: 0 for c in range(self.n_classes)}
         
         for sample in samples:
             self.df.reset_state()
@@ -381,7 +388,7 @@ class DFTrainer:
         
         n = len(samples)
         class_acc = {}
-        for cat in range(4):
+        for cat in range(self.n_classes):
             if per_class_total[cat] > 0:
                 class_acc[cat] = per_class_correct[cat] / per_class_total[cat]
             else:
@@ -476,7 +483,7 @@ class DFTrainer:
         print(f"  最终验证准确率: {final_val['accuracy']:.2%}")
         print(f"  各类别准确率:")
         for cat, acc in final_val["class_accuracy"].items():
-            name = ["normal", "uptrend", "downtrend", "anomaly"][cat]
+            name = self.category_names[cat] if cat < len(self.category_names) else str(cat)
             print(f"    {name:12s}: {acc:.2%}")
         
         return summary
@@ -599,8 +606,8 @@ if __name__ == "__main__":
     print("训练器自测试")
     print("=" * 60)
     
-    dataset = StockTrainingDataset(dim=16, seed=42)
-    train, val = dataset.generate_dataset(samples_per_class=10, train_ratio=0.8)
+    dataset = RustCodingTrainingDataset(dim=16)
+    train, val = dataset.generate_dataset(train_ratio=0.75)
     
     # v5.2: depth=2, num_think_layers=1 => ~4400单元
     trainer = DFTrainer(depth=2, dim=16, learning_rate=0.008)

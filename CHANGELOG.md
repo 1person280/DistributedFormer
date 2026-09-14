@@ -1,5 +1,40 @@
 # 更新日志
 
+## v0.7.5 (2026-09-14)
+
+训练数据真实化：彻底移除合成训练数据，训练/评估管道 100% 采用真实数据集基准。
+
+### 移除 (激进真实化)
+- **删除 `distributedformer/training/data_generator.py`**（合成股票训练数据集
+  `StockTrainingDataset`）——框架内不再存在任何合成训练样本生成路径
+
+### 新增
+- `distributedformer/data/real_dataset.py`: **RustCodingTrainingDataset** —
+  纯真实训练数据集。数据全部来自 v0.6.0 Rust coding 真实基准语料
+  (100 段真实风格代码 × 5 类真实 rustc 错误族)；输入信号 =
+  代码感知 TF-IDF 脉冲编码 (`encode_text`, crc32 确定性)，监督模式 =
+  16 维类别位；分层 75/25 划分；携带随机基线 (20%) 与多数类基线
+- 有意义的评估基线：训练入口 / CLI / 消融实验统一输出
+  随机 20% 与多数类基线对照
+
+### 变更
+- `trainer.py`: `SpikeSupervisedLoss` / `DFTrainer` 由硬编码 4 类泛化为
+  `n_classes` (默认 5: move/borrow/lifetime/type/ok)，思考层分组监督、
+  损失、准确率、类别统计全部适配
+- `training/train.py` / `training/readout.py` / `cli.py train` /
+  `experiments/`（ablation_study / ablation_study_extended / run_single_exp /
+  readout_validation）：全部切换至真实数据集；readout 验证基线 25% → 20%
+
+### 真实数据评估结果
+- reservoir 读出层 (R1, depth=1, 5 种子): 验证准确率 28%–44%（均值 36%），
+  随机基线 20%，多数类基线 20%——全部种子超过基线，网络内部表征在
+  真实 Rust 语料上携带类别信息
+- 端到端注入式监督训练在 100 样本真实语料上仍低于基线，与 v5.2
+  历史消融结论一致，如实报告（学习规则改进仍在路线图中）
+
+### 质量
+- 测试 104 项全绿，无回归
+
 ## v0.7.4 (2026-09-14)
 
 KV 堆注意力检索向量化：打分与 top-k 全程 numpy 批量计算，消除逐条 Python 循环。

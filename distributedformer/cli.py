@@ -4,7 +4,7 @@ DistributedFormer 命令行入口
 子命令:
   demo      股票监控端到端演示 (模拟数据)
   serve     长驻监控服务 (容器/生产部署入口, 支持 --realtime 真实行情)
-  train     运行合成数据训练
+  train     真实数据训练 (Rust 编码基准)
   test      运行各模块自检
   chat      终端聊天: 与 CubeGPT 对话
 """
@@ -76,13 +76,11 @@ def cmd_serve(args):
 
 
 def cmd_train(args):
-    from distributedformer.training.data_generator import StockTrainingDataset
+    from distributedformer.data.real_dataset import RustCodingTrainingDataset
     from distributedformer.training.trainer import DFTrainer
 
-    dataset = StockTrainingDataset(dim=16, seed=args.seed)
-    train, val = dataset.generate_dataset(
-        samples_per_class=args.samples_per_class, train_ratio=0.8
-    )
+    dataset = RustCodingTrainingDataset(dim=16)
+    train, val = dataset.generate_dataset(train_ratio=0.75, seed=args.seed)
     trainer = DFTrainer(depth=args.depth, dim=16, learning_rate=args.lr)
     summary = trainer.train(train, val, epochs=args.epochs, save_dir=args.save_dir)
     report = trainer.generate_training_report()
@@ -90,6 +88,7 @@ def cmd_train(args):
     with open(os.path.join(args.save_dir, "training_report.md"), "w", encoding="utf-8") as f:
         f.write(report)
     print(f"\n最佳验证准确率: {summary['best_val_accuracy']:.2%}")
+    print(f"随机基线: {dataset.RANDOM_BASELINE:.0%}")
 
 
 def cmd_chat(args):
@@ -125,12 +124,11 @@ def build_parser():
     p_serve.add_argument("--output-dir", default=".")
     p_serve.set_defaults(func=cmd_serve)
 
-    p_train = sub.add_parser("train", help="合成数据训练")
+    p_train = sub.add_parser("train", help="真实数据训练 (Rust 编码基准)")
     p_train.add_argument("--depth", type=int, default=1, choices=[0, 1, 2])
     p_train.add_argument("--epochs", type=int, default=10)
-    p_train.add_argument("--samples-per-class", type=int, default=50)
     p_train.add_argument("--lr", type=float, default=0.008)
-    p_train.add_argument("--seed", type=int, default=42)
+    p_train.add_argument("--seed", type=int, default=42, help="分层划分种子")
     p_train.add_argument("--save-dir", default="training/checkpoints")
     p_train.set_defaults(func=cmd_train)
 

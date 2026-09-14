@@ -28,16 +28,15 @@ def run_exp(exp_idx, workspace):
         sys.path.insert(0, workspace)
     
     from distributedformer.training.trainer import DFTrainer
-    from distributedformer.training.data_generator import StockTrainingDataset
+    from distributedformer.data.real_dataset import RustCodingTrainingDataset
     
     EPOCHS = 10
     SEED = 42
-    SAMPLES = 50
     
     print(f"[{exp['name']}] depth={exp['depth']}, think_super={'ON' if exp['think_supervision'] else 'OFF'}")
     
-    dataset = StockTrainingDataset(dim=16, seed=SEED)
-    train, val = dataset.generate_dataset(samples_per_class=SAMPLES, train_ratio=0.8)
+    dataset = RustCodingTrainingDataset(dim=16)
+    train, val = dataset.generate_dataset(train_ratio=0.75, seed=SEED)
     
     trainer = DFTrainer(
         depth=exp["depth"],

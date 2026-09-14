@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.7.4-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.7.5-orange)](CHANGELOG.md)
 
 </div>
 
@@ -68,7 +68,7 @@ dformer serve --tickers AAPL TSLA NVDA --interval 300
 # 使用真实行情 (yfinance)
 dformer serve --realtime --interval 300
 
-# 合成数据训练
+# 真实数据训练 (Rust 编码基准, v0.7.5)
 dformer train --depth 1 --epochs 10
 
 # 模块自检
@@ -395,12 +395,13 @@ DistributedFormer/
 │   ├── codec/                   # 数值·文本·时序 → 脉冲编码; 脉冲 → 动作解码
 │   ├── agents/                  # 5 类脉冲智能体
 │   ├── workflow/                # 工作流引擎 + 消息路由
-│   ├── training/                # 合成数据生成 + 监督/STDP 训练器
+│   ├── data/                     # 真实数据集: Rust 编码基准 + 纯真实训练集 (v0.7.5)
+│   ├── training/                 # 监督/STDP 训练器 + 真实数据读出验证 (纯真实数据)
 │   ├── deployment/              # Docker / K8s / Redis / Prometheus
 │   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件
-├── tests/                       # pytest 测试 (97 项)
+├── tests/                       # pytest 测试 (104 项)
 ├── experiments/                 # 消融实验脚本、结果与报告 (E1-E5, R1-R2)
 ├── reports/                     # 历史训练与实验报告
 ├── visualization/               # 训练曲线 / 准确率图
@@ -442,7 +443,6 @@ rustc 错误作为可调用的训练/评估材料, 内核无需额外数据源�
 
 ```python
 from distributedformer.cutemamen import CuteMamenKernel, RustCodingPlugin
-
 kernel = CuteMamenKernel(dim=16)
 plugin = RustCodingPlugin("rust-coding")            # route 默认 "rust"
 kernel.mount(plugin)
@@ -484,8 +484,11 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
 - [x] v0.7.4 - **KV 堆注意力检索向量化**：打分与 top-k 全程 numpy 批量计算
   （`KVStack` 增量矩阵索引 + swap-remove 淘汰），主计算路径检索提速约 40 倍
   （4096 条堆 54ms → 1.3ms），行为与旧逐条打分实现数值一致
+- [x] v0.7.5 - **训练数据真实化**：彻底移除合成训练数据（删除
+  `data_generator.py`），训练/评估管道 100% 采用真实 Rust 编码基准语料
+  （`RustCodingTrainingDataset`），训练器泛化为 5 类，统一输出随机/多数类
+  评估基线；真实数据读出层验证 28%–44%（5 种子均值 36%）vs 随机 20%
 - [ ] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路, RustCodingPlugin 导出 X/y）
-- [ ] 真实数据集基准（替代纯合成数据），建立有意义的评估基线
 - [ ] Redis 分布式 KV 堆在多节点工作流中实际启用
 - [ ] 学习规则改进：目标是在 ≥2 个真实任务上显著超过随机基线
 
@@ -505,9 +508,10 @@ FractalLayer / 输入端口 / 输出头的真实注意力来源，记忆影响�
 * ~~训练监督以合成数据为主~~ **已起步（v0.6.0）**：新增 Rust coding 真实需求
   基准（真实代码 + 真实 rustc 错误类别），读出层 57.6% ± 10.3% vs 随机 20%
   （复测值）；扩展更多真实数据集与真实代码语料仍在路线图中。
-* ~~训练材料只有合成数据~~ **已填补（v0.7.3）**：`RustCodingPlugin` 内嵌 100 段
-  真实 Rust 语料, `training_data()` 导出真实特征+标签供端到端训练, 每类原型
-  权重随 `.CuteMamen` 包往返热加载
+* ~~训练材料只有合成数据~~ **已根除（v0.7.5）**：合成训练数据集已整体删除，
+  训练/评估管道 100% 采用真实 Rust 编码基准语料
+  （`RustCodingTrainingDataset`，100 段真实代码 × 5 类真实 rustc 错误），
+  训练入口 / CLI / 消融实验统一携带随机 20% 与多数类评估基线
 * ~~训练报告只有占位符~~ **已修复（v0.7.0）**：`report_generate` 动作现在渲染
 真实统计数据（智能体状态 / CubeGPT 网络统计 / KV 堆记忆 / STDP 学习统计），
 不再产生 `[自动生成内容占位]`。

@@ -1,8 +1,11 @@
 """
-DistributedFormer 第一次全面训练 - 入口脚本
+DistributedFormer 全面训练入口 — 真实数据版 (v0.7.5)
+
+训练数据 100% 来自真实 Rust 编码基准语料 (100 段真实风格代码 ×
+5 类真实 rustc 编译错误族), 无任何合成样本。
 
 执行完整训练流程:
-1. 生成训练/验证数据集
+1. 加载真实训练/验证数据集 (rust_coding 语料, 分层划分)
 2. 初始化训练器
 3. 执行多epoch训练
 4. 保存权重和报告
@@ -18,13 +21,12 @@ from typing import Dict
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from distributedformer.training.data_generator import StockTrainingDataset
+from distributedformer.data.real_dataset import RustCodingTrainingDataset
 from distributedformer.training.trainer import DFTrainer
 import numpy as np
 
 
 def run_first_training(
-    samples_per_class: int = 200,
     epochs: int = 30,
     depth: int = 2,
     dim: int = 16,
@@ -33,41 +35,42 @@ def run_first_training(
     seed: int = 42
 ) -> Dict:
     """
-    执行第一次全面训练
-    
+    在真实 Rust 编码基准上执行全面训练
+
     Args:
-        samples_per_class: 每类训练样本数 (4类: normal, uptrend, downtrend, anomaly)
         epochs: 训练轮数
         depth: 分形深度 (2 = 4,368单元 / 69K参数)
         dim: 信号维度
         learning_rate: 监督学习率
         super_modulation: 监督信号调制强度
-        seed: 随机种子
-    
+        seed: 分层划分随机种子
+
     Returns:
         训练总结字典
     """
-    
+
     # ═══════════════════════════════════════════════════════════════
-    # 1. 生成数据集
+    # 1. 加载真实数据集
     # ═══════════════════════════════════════════════════════════════
     print("\n" + "="*70)
-    print("  [1/5] 生成训练数据集")
+    print("  [1/5] 加载真实训练数据集 (Rust 编码基准, 无合成样本)")
     print("="*70)
-    
-    dataset = StockTrainingDataset(dim=dim, seed=seed)
+
+    dataset = RustCodingTrainingDataset(dim=dim)
     train_samples, val_samples = dataset.generate_dataset(
-        samples_per_class=samples_per_class,
-        train_ratio=0.8
+        train_ratio=0.75, seed=seed
     )
-    
+
     train_dist = dataset.get_class_distribution(train_samples)
     val_dist = dataset.get_class_distribution(val_samples)
-    
-    print(f"  训练集: {len(train_samples)} 样本")
-    print(f"  验证集: {len(val_samples)} 样本")
+    random_baseline = dataset.RANDOM_BASELINE
+    majority_baseline = dataset.majority_baseline(train_samples)
+
+    print(f"  训练集: {len(train_samples)} 真实样本")
+    print(f"  验证集: {len(val_samples)} 真实样本")
     print(f"  训练集分布: {train_dist}")
     print(f"  验证集分布: {val_dist}")
+    print(f"  评估基线: 随机 {random_baseline:.0%} / 多数类 {majority_baseline:.0%}")
     
     # ═══════════════════════════════════════════════════════════════
     # 2. 初始化训练器
@@ -168,7 +171,7 @@ def run_first_training(
         val_acc = [m['accuracy'] for m in trainer.val_history[:len(trainer.train_history)]]
         ax2.plot(epochs_range, train_acc, 'b-', label='Train Accuracy', linewidth=2)
         ax2.plot(epochs_range, val_acc, 'r-', label='Val Accuracy', linewidth=2)
-        ax2.axhline(y=0.85, color='g', linestyle='--', label='Target (85%)', alpha=0.5)
+        ax2.axhline(y=0.20, color='g', linestyle='--', label='Random Baseline (20%)', alpha=0.5)
         ax2.set_xlabel('Epoch')
         ax2.set_ylabel('Accuracy')
         ax2.set_title('Training & Validation Accuracy')
@@ -206,17 +209,18 @@ def run_first_training(
         plt.close()
         print(f"  训练曲线: {viz_path}")
         
-        # 额外: 类别准确率柱状图
+        # 额外: 类别准确率柱状图 (真实 rustc 错误族)
         if trainer.val_history and 'class_accuracy' in trainer.val_history[-1]:
             fig, ax = plt.subplots(figsize=(8, 5))
-            classes = ['Normal', 'Uptrend', 'Downtrend', 'Anomaly']
-            accs = [trainer.val_history[-1]['class_accuracy'].get(i, 0) for i in range(4)]
-            colors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12']
+            classes = trainer.category_names
+            accs = [trainer.val_history[-1]['class_accuracy'].get(i, 0)
+                    for i in range(trainer.n_classes)]
+            colors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6']
             bars = ax.bar(classes, accs, color=colors, edgecolor='black')
             ax.set_ylabel('Accuracy')
-            ax.set_title('Per-Class Validation Accuracy (Final Epoch)')
+            ax.set_title('Per-Class Validation Accuracy (Final Epoch, Real Rust Corpus)')
             ax.set_ylim(0, 1.1)
-            ax.axhline(y=0.85, color='r', linestyle='--', label='Target (85%)', alpha=0.5)
+            ax.axhline(y=0.20, color='r', linestyle='--', label='Random Baseline (20%)', alpha=0.5)
             
             for bar, acc in zip(bars, accs):
                 ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
@@ -232,36 +236,39 @@ def run_first_training(
     except Exception as e:
         print(f"  可视化生成失败: {e}")
     
+    summary["random_baseline"] = random_baseline
+    summary["majority_baseline"] = majority_baseline
+
     # ═══════════════════════════════════════════════════════════════
     # 最终输出
     # ═══════════════════════════════════════════════════════════════
     print("\n" + "="*70)
-    print("  [DONE] 第一次全面训练完成!")
+    print("  [DONE] 真实数据全面训练完成!")
     print("="*70)
     print(f"  最佳验证准确率: {summary['best_val_accuracy']:.2%}")
+    print(f"  评估基线 (随机): {random_baseline:.0%}")
+    print(f"  评估基线 (多数类): {majority_baseline:.0%}")
     print(f"  最佳验证损失: {summary['best_val_loss']:.4f}")
     print(f"  训练耗时: {summary['elapsed_seconds']:.1f}秒")
     print(f"  权重文件: {save_dir}/best_model.npz")
     print(f"  报告文件: {report_path}")
     print("="*70)
-    
+
     return summary
 
 
 if __name__ == "__main__":
     import argparse
-    
-    parser = argparse.ArgumentParser(description='DistributedFormer 第一次全面训练')
-    parser.add_argument('--samples', type=int, default=80, help='每类样本数')
+
+    parser = argparse.ArgumentParser(description='DistributedFormer 真实数据全面训练 (Rust 编码基准)')
     parser.add_argument('--epochs', type=int, default=30, help='训练轮数')
     parser.add_argument('--depth', type=int, default=2, help='分形深度')
     parser.add_argument('--lr', type=float, default=0.008, help='学习率')
     parser.add_argument('--mod', type=float, default=0.25, help='监督调制强度')
-    parser.add_argument('--seed', type=int, default=42, help='随机种子')
+    parser.add_argument('--seed', type=int, default=42, help='分层划分种子')
     args = parser.parse_args()
-    
+
     run_first_training(
-        samples_per_class=args.samples,
         epochs=args.epochs,
         depth=args.depth,
         learning_rate=args.lr,

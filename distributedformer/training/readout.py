@@ -6,10 +6,10 @@
 提取器), 仅训练线性 softmax 读出层。这是 reservoir computing 的
 标准做法, 可明确判断网络内部表征是否携带类别信息。
 
-验证协议:
-- 合成 4 分类股票数据 (normal/uptrend/downtrend/anomaly)
-- 多随机种子, 训练/验证集分离
-- 对照随机基线 (25%) 与多数类基线
+验证协议 (v0.7.5, 训练数据真实化):
+- 真实 Rust 编码基准数据 (move/borrow/lifetime/type/ok, 5 分类)
+- 多随机种子, 分层训练/验证集分离
+- 对照随机基线 (20%) 与多数类基线
 """
 
 import time
@@ -18,7 +18,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 
 from distributedformer.core.distributedformer import CubeGPT, DistributedFormer
-from distributedformer.training.data_generator import StockTrainingDataset
+from distributedformer.data.real_dataset import RustCodingTrainingDataset
 
 
 class PatternExtractor:
@@ -61,7 +61,7 @@ class PatternExtractor:
 class LinearReadout:
     """线性 softmax 读出层 (纯 numpy, 带 L2 正则)"""
 
-    def __init__(self, n_features: int, n_classes: int = 4, lr: float = 0.1,
+    def __init__(self, n_features: int, n_classes: int = 5, lr: float = 0.1,
                  l2: float = 1e-3, epochs: int = 300, seed: int = 0):
         rng = np.random.RandomState(seed)
         self.n_classes = n_classes
@@ -100,13 +100,11 @@ class LinearReadout:
         return float((self.predict(X) == y).mean())
 
 
-def run_validation(seed: int = 0, samples_per_class: int = 40,
-                   depth: int = 1, verbose: bool = False) -> Dict:
-    """单种子验证: 返回读出层/随机基线/多数类基线准确率"""
-    dataset = StockTrainingDataset(dim=16, seed=seed)
-    train, val = dataset.generate_dataset(
-        samples_per_class=samples_per_class, train_ratio=0.75
-    )
+def run_validation(seed: int = 0, depth: int = 1, verbose: bool = False) -> Dict:
+    """单种子验证 (真实 Rust 编码基准): 返回读出层/随机基线/多数类基线准确率"""
+    dataset = RustCodingTrainingDataset(dim=16)
+    train, val = dataset.generate_dataset(train_ratio=0.75, seed=seed)
+    random_baseline = dataset.RANDOM_BASELINE
 
     extractor = PatternExtractor(depth=depth, seed=seed)
     t0 = time.time()
@@ -116,23 +114,26 @@ def run_validation(seed: int = 0, samples_per_class: int = 40,
     y_val = np.array([s.category for s in val])
     extract_sec = time.time() - t0
 
-    readout = LinearReadout(n_features=X_train.shape[1], seed=seed).fit(X_train, y_train)
+    readout = LinearReadout(n_features=X_train.shape[1], n_classes=5,
+                           seed=seed).fit(X_train, y_train)
     val_acc = readout.accuracy(X_val, y_val)
     train_acc = readout.accuracy(X_train, y_train)
     majority = float(np.bincount(y_train).max() / len(y_train))
 
     if verbose:
         print(f"  seed={seed} train_acc={train_acc:.2%} val_acc={val_acc:.2%} "
-              f"(随机基线 25%, 多数类 {majority:.2%}, 特征提取 {extract_sec:.1f}s)")
+              f"(随机基线 {random_baseline:.0%}, 多数类 {majority:.2%}, "
+              f"特征提取 {extract_sec:.1f}s)")
 
     return {
         "seed": seed,
-        "samples_per_class": samples_per_class,
+        "train_samples": len(train),
+        "val_samples": len(val),
         "train_accuracy": train_acc,
         "val_accuracy": val_acc,
-        "random_baseline": 0.25,
+        "random_baseline": random_baseline,
         "majority_baseline": majority,
-        "beats_random": val_acc > 0.25 + 0.05,
+        "beats_random": val_acc > random_baseline + 0.05,
         "extract_seconds": extract_sec,
     }
 
