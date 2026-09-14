@@ -5,9 +5,13 @@ DistributedFormer — 事件驱动的脉冲神经网络智能体框架
 (4 个模态面 × ~4,400 单元 × 16 参数 ≈ 281K 参数),
 配合 KV 堆记忆与多智能体工作流, 面向流式监控 / 异常检测等
 持续在线场景。
+
+v0.7.2: CuteMamen 插件标准落地 — 通用固定内核 (CuteMamenKernel)
++ .CuteMamen 专家插件包; 模型精简为 CubeGPTKernel
+(必要思考留内核, 其余思考由插件实现)。
 """
 
-__version__ = "0.7.1"
+__version__ = "0.7.2"
 
 __all__ = [
     "__version__",
@@ -20,7 +24,24 @@ __all__ = [
     "export_face",
     "import_face",
     "read_manifest",
+    # CuteMamen (v0.7.2)
+    "CuteMamenKernel",
+    "CubeGPTKernel",
+    "ExpertPlugin",
+    "FacePlugin",
+    "LoRABridgePlugin",
+    "EventBus",
+    "save_pkg",
+    "load_pkg",
 ]
+
+_CUTEMAMEN_EXPORTS = {
+    "CuteMamenKernel", "CubeGPTKernel", "ExpertPlugin", "FacePlugin",
+    "LoRABridgePlugin", "LoRAAdapter", "EventBus", "ExpertPlugin",
+    "PluginMemory", "PluginContext", "save_pkg", "load_pkg",
+    "read_manifest", "decode_manifest", "apply_lora", "lora_from_weight",
+    "migrate_main",
+}
 
 
 def __getattr__(name):
@@ -43,4 +64,7 @@ def __getattr__(name):
     if name in ("export_face", "import_face", "read_manifest"):
         from distributedformer.core import face_pkg
         return getattr(face_pkg, name)
+    if name in _CUTEMAMEN_EXPORTS:
+        from distributedformer import cutemamen
+        return getattr(cutemamen, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

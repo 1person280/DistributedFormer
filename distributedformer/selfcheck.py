@@ -240,6 +240,69 @@ def run_workflow_test():
     print("\n✅ 工作流引擎测试通过!")
 
 
+def run_cutemamen_test():
+    """CuteMamen 插件标准自检 (v0.7.2)"""
+    print("\n" + "=" * 70)
+    print("  [模式6] CuteMamen 插件标准 (内核 + 思考插件)")
+    print("=" * 70)
+
+    import tempfile
+    import numpy as np
+    from distributedformer.cutemamen import (
+        CubeGPTKernel, CuteMamenKernel, ExpertPlugin, LoRAAdapter,
+        LoRABridgePlugin, PluginMemory, save_pkg, load_pkg,
+    )
+
+    class EchoPlugin(ExpertPlugin):
+        def on_think(self, event, ctx):
+            super().on_think(event, ctx)
+            return {"echo": event.get("data")}
+
+    # 1. 通用固定内核: 路由 + 生命周期 + 事件总线
+    kernel = CuteMamenKernel(dim=16)
+    lifecycle_seen = []
+    kernel.bus.subscribe("*", lambda e: lifecycle_seen.append(e["topic"]))
+    kernel.mount(EchoPlugin("echo"))
+    out = kernel.think({"topic": "echo", "data": 42})
+    print(f"\n🧠 内核路由: think() → {out}")
+    print(f"    生命周期广播: {lifecycle_seen[:3]} ...")
+
+    # 2. 三级记忆
+    mem = PluginMemory()
+    mem.set("w", [1]); mem.record("t", "s"); mem.remember("k", "v")
+    print(f"\n📚 三级记忆: working={len(mem.working)} "
+          f"episodic={len(mem.episodic)} semantic={len(mem.semantic)}")
+
+    # 3. LoRA 桥接 + .CuteMamen 存档往返
+    rng = np.random.RandomState(0)
+    ad = LoRAAdapter("wq", a=rng.randn(4, 16), b=rng.randn(16, 4), alpha=2.0)
+    lora_plugin = LoRABridgePlugin("lora-wq", adapter=ad)
+    kernel.mount(lora_plugin)
+    x = rng.randn(16)
+    out = kernel.think({"topic": "lora-wq", "data": x})
+    print(f"\n🔌 LoRA 桥接: ΔW·x 低秩贡献 ‖y‖={np.linalg.norm(out[0]['output']):.3f}")
+
+    with tempfile.TemporaryDirectory() as td:
+        pkg = os.path.join(td, "lora-wq.CuteMamen")
+        save_pkg(lora_plugin, pkg)
+        loaded, manifest = load_pkg(pkg)
+        assert np.allclose(loaded.adapter.forward(x), ad.forward(x))
+        print(f"📦 .CuteMamen 存档往返: {os.path.basename(pkg)} "
+              f"(base_model={manifest['base_model']})")
+
+    # 4. CubeGPTKernel 精简模型: 必要思考 + 面思考插件
+    np.random.seed(1)
+    ck = CubeGPTKernel(depth=1, dim=16, modalities=["numeric", "text"])
+    for i in range(3):
+        ck.step({"numeric": 0.5 * i + 0.1, "text": "hello"})
+    stats = ck.get_network_stats()
+    print(f"\n⚡ CubeGPTKernel: 面={stats['faces']} "
+          f"单元={stats['total_units']} 插件={stats['cutemamen']['loaded_plugins']}")
+    print("    (内核只留棱路由/KV 记忆/输出头/节律, 皮层计算在 FacePlugin)")
+
+    print("\n✅ CuteMamen 插件标准测试通过!")
+
+
 def run_stock_demo(cycles=10, interval=0.5):
     """运行股票监控演示"""
     print("\n" + "=" * 70)
@@ -271,6 +334,7 @@ def run_full_test_suite():
         ("编解码层", run_codec_test),
         ("智能体框架", run_agent_test),
         ("工作流引擎", run_workflow_test),
+        ("CuteMamen 插件标准", run_cutemamen_test),
     ]
     
     results = []

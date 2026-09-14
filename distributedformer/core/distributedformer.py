@@ -1219,6 +1219,38 @@ class CubeGPT:
             "registered": [m for m in self._face_registry if m not in self.faces],
         }
 
+    # ── v0.7.2 模型精简: 转换为内核形态 (必要思考 + 思考插件) ───
+
+    def to_kernel(self, memory_budget_mb: Optional[float] = None) -> "CubeGPTKernel":
+        """零拷贝转换为 CubeGPTKernel 精简形态 (v0.7.2)
+
+        模态面皮层计算整体外移为 FacePlugin 思考插件 (同一 CubeFace
+        对象, 权重/状态零拷贝); 内核只保留必要思考: 棱路由 / KV 工作
+        记忆 / 输出头 / 节律。转换后 step() 行为与经典形态一致。
+        """
+        from ..cutemamen import CubeGPTKernel
+        from ..cutemamen.face_bridge import FacePlugin
+        kernel = CubeGPTKernel(
+            depth=self.depth, dim=self.dim, modalities=[],
+            kv_capacity=self.kv_stack.capacity,
+            memory_budget_mb=memory_budget_mb,
+            training_mode=self.training_mode)
+        # 零拷贝迁移: 同一 KV 堆 / 输出头 / 面对象
+        kernel.working_memory.kv_stack = self.kv_stack
+        kernel.output_module = self.output_module
+        kernel.total_steps = self.total_steps
+        kernel.cycle_phase = self.cycle_phase
+        kernel.global_modulation = self.global_modulation
+        kernel.learning_enabled = self.learning_enabled
+        kernel._last_input = getattr(self, "_last_input", np.zeros(self.dim))
+        for m, face in self.faces.items():
+            kernel.mount(FacePlugin(m, depth=self.depth, dim=self.dim,
+                                    face=face))
+        for m, path in self._face_registry.items():
+            if m not in kernel.plugins:
+                kernel.registry[m] = path
+        return kernel
+
 
 class DistributedFormer:
     """

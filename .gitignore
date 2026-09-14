@@ -17,3 +17,7 @@ reports/stock_monitor_summary.md
 computation_output.txt
 .zcode/
 HEAD
+
+# 运行时插件存档 (卸载/淘汰时自动导出)
+cutemamen_pkgs/
+face_pkgs/

@@ -102,11 +102,30 @@ CuteMamen 设计了多种与现有架构兼容的集成方式：
 
 一个系统要声称 "CuteMamen 兼容"，必须满足：
 
-- [ ] 支持加载 / 卸载 `.CuteMamen` 插件包（tar.gz，含 `manifest.json`）
-- [ ] 实现并正确调用 `on_load` / `on_think` / `on_unload` 生命周期钩子
-- [ ] 遵守 `manifest.json` 格式规范，忽略未知字段
-- [ ] 在解码器层集中处理版本适配，内核与模块对插件版本无感知
-- [ ] 尊重 `min_core_version` 与 `memory_budget` 声明
+- [x] 支持加载 / 卸载 `.CuteMamen` 插件包（tar.gz，含 `manifest.json`）
+- [x] 实现并正确调用 `on_load` / `on_think` / `on_unload` 生命周期钩子
+- [x] 遵守 `manifest.json` 格式规范，忽略未知字段
+- [x] 在解码器层集中处理版本适配，内核与模块对插件版本无感知
+- [x] 尊重 `min_core_version` 与 `memory_budget` 声明
+
+## 8. 参考实现
+
+DistributedFormer v0.7.2 是本规范的完整参考实现（`distributedformer/cutemamen/`）：
+
+| 规范条款 | 实现位置 |
+|---------|---------|
+| 固定内核（路由 / 生命周期 / 内存调度） | `kernel.CuteMamenKernel` |
+| 生命周期钩子 | `plugin.ExpertPlugin`（内核按序调用） |
+| 三级记忆存档（工作 / 情景 / 语义） | `plugin.PluginMemory` |
+| 事件总线通信 | `event_bus.EventBus` |
+| `.CuteMamen` 包格式与解码器 | `pkg.save_pkg` / `pkg.load_pkg` / `pkg.decode_manifest` |
+| 内存预算淘汰 | `kernel.CuteMamenKernel._enforce_budget`（先存档后卸载） |
+| LoRA 适配器映射（§6） | `bridge.LoRAAdapter` / `bridge.LoRABridgePlugin` |
+| 迁移工具 `migrate-v1-to-v2`（§2.2） | `migrate.main`（`migrate-v1-to-v2` 命令） |
+| `min_core_version` 检查 | `pkg.check_core_version` |
+
+v0.7.0 的 `.dfpkg` 模态面存档是包格式的首个特例，v0.7.2 起经
+`face_bridge.FacePlugin` 通用化：`.dfpkg` 与 `.CuteMamen` 双向可载。
 
 ---
 

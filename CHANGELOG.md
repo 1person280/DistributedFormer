@@ -1,5 +1,71 @@
 # 更新日志
 
+## v0.7.2 (2026-09-14)
+
+CuteMamen 插件标准落地 + 模型精简。新增 `distributedformer/cutemamen` 包
+（约 1,600 行）：通用固定内核（路由器 + 工作记忆 + 插件注册表）与
+`.CuteMamen` 专家插件包；v0.7.0 的模态面 pkg 是其首个特例。
+模型精简为 CubeGPTKernel——必要思考留内核，其余思考由插件实现。
+
+### 新增: CuteMamen 插件标准 (`distributedformer/cutemamen/`)
+- `kernel.py`: **CuteMamenKernel 通用固定内核 (Nest)** — 路由器 (主题 →
+  插件, 未路由事件广播 kernel.unrouted) + 工作记忆 (近期事件 + KV 堆注意力)
+  + 插件注册表 (挂载/卸载/随用随载热加载) + 内存预算 LRU 淘汰
+  (超预算先自动存档 .CuteMamen 再卸载, 绝不淘汰本轮激活的专家,
+  淘汰广播 plugin.evicted)
+- `plugin.py`: **ExpertPlugin 专家插件基类** — on_load / on_think /
+  on_unload 生命周期钩子 (规范 §5), 内核按序调用; on_think 每次激活
+  自动记录情景记忆。**PluginMemory 三级记忆存档**: working (FIFO) /
+  episodic (带时间戳事件流水) / semantic (LRU 知识), consolidate()
+  情景 → 语义蒸馏, archive()/restore() JSON 安全存档
+- `event_bus.py`: **EventBus 事件总线** — pub/sub + `*` 通配订阅,
+  生命周期广播 (plugin.loaded / plugin.unloaded / plugin.evicted /
+  kernel.think), 插件输出发布到 plugin.<name>.output 供其他插件订阅
+  (插件间通信), 订阅方异常隔离不中断发布方
+- `pkg.py`: **.CuteMamen 包格式** (单个 tar.gz: manifest.json +
+  weights/weights.npz + memory/{working,episodic,semantic}.json)。
+  **解码器层集中兼容** (规范 §2.1): v1 → v2 自动适配
+  (model_type→base_model / on_init→on_load / 删 legacy_mode /
+  补 on_unload 桩), 未知字段一律保留; min_core_version 检查;
+  base_model 原生插件注册表分发; .dfpkg (v0.7.0) 特例自动分流到
+  FacePlugin
+- `bridge.py`: **LoRA/Adapter 兼容桥接** (规范 §6) — LoRAAdapter
+  (ΔW = (α/r)·B@A), LoRABridgePlugin (on_think 计算 ΔW·x 低秩贡献,
+  存档/加载/导出为 LoRA), apply_lora 权重合并, lora_from_weight
+  任意线性权重 SVD 低秩导出
+- `face_bridge.py`: **FacePlugin 模态面思考插件** — v0.7.0 .dfpkg 模态面
+  pkg 的通用化: 一个 CubeFace = 一个思考插件, on_think 驱动面皮层计算,
+  权重序列化复用 face_pkg 逐位可复现格式
+- `migrate.py`: **migrate-v1-to-v2 迁移工具** (规范 §2.2) — 随包安装的
+  命令行入口 (`migrate-v1-to-v2`), 支持 --recursive/--dry-run/--strict/
+  --backup/--output, 退出码 0/1/2 (全部成功/部分需人工/严重错误)
+
+### 新增: 模型精简 CubeGPTKernel
+- CubeGPTKernel (kernel.py): CubeGPT 的内核形态, 只保留**必要思考** —
+  立方体棱路由 / KV 堆工作记忆 / 输出头 16 单元 / 节律调制;
+  模态面皮层计算整体外移为 FacePlugin 思考插件
+- API 与经典 CubeGPT 兼容: step / faces / ring / kv_stack /
+  export_face / import_face / unload_face / register_face_pkg /
+  load_face / list_faces / get_network_stats / reset_state;
+  step() 沿用随用随载热加载 (输入用到已注册未加载模态时现场加载)
+- `CubeGPT.to_kernel()`: 经典形态 → 内核形态零拷贝转换
+  (同一面对象 / KV 堆 / 输出头, 权重与状态不复制)
+
+### 变更
+- .dfpkg manifest 补 CuteMamen 规范字段: standard_version "2.0.0" +
+  base_model "cubegpt.face" (旧包兼容不受影响, 解码器适配)
+- `dformer test` 自检套件新增 [模式6] CuteMamen 插件标准
+- Rust 基准 (v0.6.0) 复测值更新到 README: 57.6% ± 10.3%
+  (修复 CubeFeatureExtractor 可复现性后的 5 种子结果, 初版 54.4% ± 5.4%)
+
+### 质量
+- 新增 tests/test_cutemamen.py 39 项: 生命周期钩子顺序 / 路由 / 热加载 /
+  三级记忆往返与容量淘汰 / 事件总线通配与异常隔离 / 包格式往返 /
+  解码器 v1→v2 适配与未知字段保留 / 内存预算淘汰 (含保护语义) /
+  LoRA 数学与桥接往返 / FacePlugin 状态逐位还原 / dfpkg 特例加载 /
+  CubeGPTKernel 全 API / to_kernel 零拷贝 / 迁移工具全部参数与退出码
+- 测试总计 94 项全绿 (55 → 94)
+
 ## v0.7.1 (2026-09-13)
 
 终端聊天: `dformer chat` 与 CubeGPT 直接对话。

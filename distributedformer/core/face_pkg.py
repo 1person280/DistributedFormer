@@ -162,6 +162,9 @@ def build_manifest(face: CubeFace, *, author: str = "DistributedFormer",
                       "on_think": "native"},
         "dependencies": [],
         "min_core_version": min_core_version,
+        # v0.7.2: CuteMamen 规范字段 (base_model → FacePlugin 桥接)
+        "standard_version": "2.0.0",
+        "base_model": "cubegpt.face",
         # DistributedFormer 扩展字段
         "format": "dfpkg",
         "format_version": PKG_FORMAT_VERSION,
