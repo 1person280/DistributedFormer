@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.2-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.3-orange)](CHANGELOG.md)
 
 </div>
 
@@ -523,8 +523,12 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
    **67.2%**（56%–80%，5 种子最佳验证），全部种子超随机基线 3 倍以上
 4. **P2 · 扩真实语料**：100 → 500+ 段（rustc 错误索引真实样例、真实
    crate 编译失败样本），验证集 25 → 125，把评估方差从 ±6–9% 降到 ±2%
-5. **P2 · 5 折交叉验证**：替代单次 75/25 划分，评估结论不再依赖
-   划分运气
+5. **P2 · 5 折交叉验证** ✅ **已完成（v0.8.3）**：`stratified_kfold`
+   分层 K 折（每类别轮流分折，折间比例一致），`run_cross_validation`
+   每种子 5 折 × 5 种子共 25 次折评估，替代单次 75/25 划分——实测
+   **63.8%**（折展平 ±10.0%，折范围 45%–85%，种子均值 57%–67%，
+   全部 25 折超随机基线），与 v0.8.1 单次划分结论（61.6%）一致，
+   评估不再依赖划分运气
 
 ## 已知问题（v0.7.2 状态）
 

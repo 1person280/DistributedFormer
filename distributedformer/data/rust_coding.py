@@ -319,3 +319,23 @@ def stratified_split(samples: list, train_ratio: float = 0.75,
         train.extend(items[i] for i in idx[:n_train])
         val.extend(items[i] for i in idx[n_train:])
     return train, val
+
+
+def stratified_kfold(samples: list, n_folds: int = 5, seed: int = 0):
+    """分层 K 折划分 (每类别轮流分配到各折, 折间类别比例一致)
+
+    Returns:
+        folds: 长度 n_folds 的列表, 每项为一折的验证样本;
+        训练集 = 其余折的并集。替代单次 75/25 划分, 评估结论
+        不再依赖划分运气 (P2 交叉验证)。
+    """
+    rng = np.random.RandomState(seed)
+    folds = [[] for _ in range(n_folds)]
+    by_label = {}
+    for s in samples:
+        by_label.setdefault(s["label"], []).append(s)
+    for label, items in sorted(by_label.items()):
+        idx = rng.permutation(len(items))
+        for pos, i in enumerate(idx):
+            folds[pos % n_folds].append(items[i])
+    return folds

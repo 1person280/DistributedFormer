@@ -39,7 +39,7 @@ from typing import Dict, List, Tuple
 from distributedformer.codec.spike_codec import SpikeEncoder
 from distributedformer.data.rust_coding import (
     LABELS, LABEL_NAMES, load_rust_coding, static_metrics,
-    structure_metrics, stratified_split
+    structure_metrics, stratified_split, stratified_kfold
 )
 
 
@@ -151,6 +151,29 @@ class RustCodingTrainingDataset:
         train = [self._to_sample(s, index_of[id(s)]) for s in train_raw]
         val = [self._to_sample(s, index_of[id(s)]) for s in val_raw]
         return train, val
+
+    def kfold_datasets(self, n_folds: int = 5,
+                       seed: int = 0) -> List[Tuple[List[TrainingSample],
+                                                    List[TrainingSample]]]:
+        """分层 K 折交叉验证划分 (每类别轮流分配到各折)
+
+        每个样本恰好作为一次验证样本, 训练集为其余折的并集;
+        替代单次 75/25 划分, 评估结论不再依赖划分运气。
+
+        Returns:
+            [(train_samples, val_samples), ...] — 长度 n_folds, 全部真实数据
+        """
+        index_of = {id(s): i for i, s in enumerate(self._corpus)}
+        folds_raw = stratified_kfold(self._corpus, n_folds=n_folds, seed=seed)
+        splits = []
+        for k in range(n_folds):
+            val_raw = folds_raw[k]
+            train_raw = [s for j in range(n_folds) if j != k
+                         for s in folds_raw[j]]
+            train = [self._to_sample(s, index_of[id(s)]) for s in train_raw]
+            val = [self._to_sample(s, index_of[id(s)]) for s in val_raw]
+            splits.append((train, val))
+        return splits
 
     def get_class_distribution(self, samples: List[TrainingSample]) -> Dict:
         """统计类别分布"""

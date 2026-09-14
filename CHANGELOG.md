@@ -1,5 +1,37 @@
 # 更新日志
 
+## v0.8.3 (2026-09-14)
+
+P2 交叉验证评估：读出层验证协议由单次 75/25 划分改为 5 折分层
+交叉验证（× 5 种子），评估结论不再依赖划分运气。
+
+### 新增
+- `stratified_kfold(samples, n_folds, seed)`（`data/rust_coding.py`）：
+  分层 K 折划分，每类别轮流分配到各折，折间类别比例一致
+  （100 段语料 / 5 折 → 每折 4×5 = 20 验证样本）
+- `RustCodingTrainingDataset.kfold_datasets(n_folds, seed)`
+  （`data/real_dataset.py`）：返回 [(train, val), ...] 折划分，
+  训练集 = 其余折并集；`stratified_split` 原路径保留不受影响
+- `run_cross_validation()`（`training/readout.py`）：单种子 5 折 CV
+  验证；特征按 sample_id 缓存，每样本仅提取一次，折级训练/评估
+  线性读出层
+
+### 变更
+- `experiments/readout_validation.py`：实验 R1 切换为 5 种子 × 5 折
+  交叉验证协议（共 25 次折评估），报告改为折级明细表 + 折展平
+  汇总；`run_validation`（单次划分路径）保留供对照
+
+### 真实数据评估结果
+- 读出层（R1, depth=1, 5 种子 × 5 折 CV）：**63.8%**（折展平
+  ±10.0%，折范围 45%–85%，种子均值 57%–67%）——全部 25 折
+  超随机基线（20%）
+- 对照 v0.8.1 单次 75/25 划分：61.6%（48%–72%，5 种子）——
+  交叉验证结论与单次划分一致，方法学结论不依赖划分运气
+
+### 版本
+- 版本 0.8.2 → 0.8.3 (pyproject / `__version__` / pkg.CORE_VERSION /
+  manifest.min_core_version)
+
 ## v0.8.2 (2026-09-14)
 
 P1 修端到端权重更新：持久输出头 + w_in 感受野向量化，端到端训练
