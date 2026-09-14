@@ -12,9 +12,9 @@
 - input_signal: `SpikeEncoder.encode_text(代码原文)` — 代码感知
   TF-IDF 脉冲编码 (保留 & ' -> :: 等代码 token, crc32 确定性哈希),
   真实代码文本直接驱动脉冲网络
-- static_signal: `static_metrics(代码)` — 真实语法扫描特征 (10 维:
-  长度/& 数/mut 数/生命周期符/clone 数/move 数/fn 数/-> 数/
-  嵌套块深度/:: 数), 走 numeric 通路注入
+- static_signal: `static_metrics` 语法扫描 (10 维) + `structure_metrics`
+  结构感知 (6 维: &mut 数/返回引用/类型标注/println/let 绑定/防御调用,
+  针对 move↔lifetime 与 type→ok 混淆源设计), 拼成 16 维走 numeric 通路
 - multimodal_input(): 返回 {"numeric": static_signal 归一化,
   "text": 代码原文} 双模态输入字典, 供 CubeGPT / CubeFeatureExtractor
   的 step() 直接消费——判别信息不再在词袋哈希中丢失
@@ -38,7 +38,8 @@ from typing import Dict, List, Tuple
 
 from distributedformer.codec.spike_codec import SpikeEncoder
 from distributedformer.data.rust_coding import (
-    LABELS, LABEL_NAMES, load_rust_coding, static_metrics, stratified_split
+    LABELS, LABEL_NAMES, load_rust_coding, static_metrics,
+    structure_metrics, stratified_split
 )
 
 
@@ -103,10 +104,11 @@ class RustCodingTrainingDataset:
         return np.clip(pattern, 0.0, 1.0)
 
     def _to_sample(self, s: Dict, idx: int) -> TrainingSample:
-        """真实语料条目 → 脉冲训练样本 (双模态)"""
+        """真实语料条目 → 脉冲训练样本 (双模态 + 结构感知特征)"""
         code = s["code"]
-        # 语法扫描特征: 每维按语料内最大值归一化到 [0, 1] (numeric 通路)
-        raw_static = static_metrics(code)
+        # 语法扫描(10维) + 结构感知(6维) = 16 维, 恰好填满 numeric 通路
+        raw_static = np.concatenate([
+            static_metrics(code), structure_metrics(code)])
         return TrainingSample(
             sample_id=f"{s['label_name']}_{idx:03d}",
             category=s["label"],
@@ -126,7 +128,10 @@ class RustCodingTrainingDataset:
     def _normalize_static(self, raw: np.ndarray) -> np.ndarray:
         """静态特征归一化到 [0, 1] (语料内逐维最大值, 跨进程确定)"""
         if self._static_max is None:
-            stacked = np.stack([static_metrics(s["code"]) for s in self._corpus])
+            stacked = np.stack([
+                np.concatenate([static_metrics(s["code"]),
+                                structure_metrics(s["code"])])
+                for s in self._corpus])
             self._static_max = stacked.max(axis=0)
         return np.clip(raw / np.maximum(self._static_max, 1e-8), 0.0, 1.0)
 

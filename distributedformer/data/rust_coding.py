@@ -282,6 +282,29 @@ def static_metrics(code: str) -> np.ndarray:
     ], dtype=float)
 
 
+def structure_metrics(code: str) -> np.ndarray:
+    """结构感知特征 (P1, v0.8.x): 针对 v0.7.5 诊断的混淆源设计
+
+    [ '&mut'数, 返回引用'-> &'数, 类型标注':'数, 'println'数,
+      'let'绑定数, 防御调用数(clone+to_string+copy) ]
+
+    设计依据 (5 种子混淆矩阵):
+    - move↔lifetime 互混: 返回引用位置 (-> &) 是 lifetime 强信号,
+      use-after-move 常伴随 println 使用已移动变量
+    - type→ok 误判: 类型标注 ': ' 密度区分显式类型代码
+    - ok 类防御性调用 (clone/to_string) 显著多于错误类
+    """
+    return np.array([
+        code.count("&mut"),
+        code.count("-> &") + code.count("->&") + code.count("-> &'")
+        + code.count("->&'"),
+        code.count(": "),
+        code.count("println"),
+        code.count("let "),
+        code.count("clone") + code.count("to_string") + code.count(".copy"),
+    ], dtype=float)
+
+
 def stratified_split(samples: list, train_ratio: float = 0.75,
                      seed: int = 0):
     """分层划分训练/验证集 (每类别按比例抽取)"""

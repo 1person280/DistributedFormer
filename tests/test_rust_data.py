@@ -3,7 +3,8 @@ import pytest
 
 from distributedformer.codec.spike_codec import SpikeEncoder
 from distributedformer.data.rust_coding import (
-    LABELS, RUST_SNIPPETS, load_rust_coding, static_metrics, stratified_split
+    LABELS, RUST_SNIPPETS, load_rust_coding, static_metrics,
+    structure_metrics, stratified_split
 )
 from distributedformer.training.readout import LinearReadout
 
@@ -33,6 +34,38 @@ def test_static_metrics():
     assert m[1] == 0  # '&' 数
     assert m[2] == 1  # 'mut' 数
     assert m[9] == 3  # '::' 数
+
+
+def test_structure_metrics():
+    # 结构感知特征 (P1): [&mut, 返回引用, 类型标注, println, let, 防御调用]
+    m = structure_metrics("fn f(s: &mut Vec<i32>) -> &i32 {\n"
+                          "    let x = s.clone();\n"
+                          "    println!(\"{}\", x);\n"
+                          "}")
+    assert m.shape == (6,)
+    assert m[0] == 1  # '&mut' 数
+    assert m[1] == 1  # '-> &' 返回引用数
+    assert m[2] >= 1  # ': ' 类型标注数
+    assert m[3] == 1  # 'println' 数
+    assert m[4] == 1  # 'let ' 绑定数
+    assert m[5] == 1  # 防御调用 (clone) 数
+    # 常量: 返回引用是 lifetime 强信号
+    assert structure_metrics("fn dangle() -> &str { &s }")[1] == 1
+    # 'mut' 单独出现不构成 '&mut' (需引用符号前缀)
+    assert structure_metrics("let mut v = vec![1]; v.push(2);")[0] == 0
+    assert structure_metrics("let r = &mut v;")[0] == 1
+
+
+def test_real_dataset_static_signal_16d():
+    from distributedformer.data.real_dataset import RustCodingTrainingDataset
+    ds = RustCodingTrainingDataset(dim=16)
+    train, val = ds.generate_dataset(train_ratio=0.75, seed=0)
+    for s in train[:5]:
+        assert s.static_signal.shape == (16,)  # 10 static + 6 structure
+        assert np.all(s.static_signal >= 0) and np.all(s.static_signal <= 1)
+        mm = s.multimodal_input()
+        assert mm["numeric"].shape == (16,)
+        assert isinstance(mm["text"], str)
 
 
 def test_stratified_split():

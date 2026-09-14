@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.0-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.1-orange)](CHANGELOG.md)
 
 </div>
 
@@ -507,9 +507,11 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
    把 `static_metrics`（语法扫描特征）走 numeric 通路 + 代码原文走
    text 通路，读出层用 `CubeFeatureExtractor`（v0.6.0 双模态曾达
    57.6%，纯静态特征诊断 71.2%）——实测 **57.6%**（52%–64%，5 种子）
-2. **P1 · 结构感知编码**（+5%–10%）：dim 16→64，加位置特征（错误行
-   位置、`&mut` 出现位置、返回类型是否含 `&`）、字符 n-gram 替代
-   词袋——直击 move↔lifetime 互混与 type→ok 误判的混淆源
+2. **P1 · 结构感知编码** ✅ **已完成（v0.8.1）**：新增 `structure_metrics`
+   6 维结构特征（`&mut` 位置 / 返回引用 `-> &` / 类型标注 / println /
+   let 绑定 / 防御调用），与 10 维 `static_metrics` 拼成 16 维恰好
+   填满 numeric 通路——直击 move↔lifetime 互混与 type→ok 误判的
+   混淆源，读出层 **57.6% → 61.6%**（48%–72%，5 种子）
 3. **P1 · 修端到端权重更新**：`w_in` 向量化为每单元感受野投影权重
    （当前注入-恢复启发式中 `error × mean(input)` 的均值池化使所有
    单元收到无差异更新），替换为持久输出头，让端到端训练超过基线
