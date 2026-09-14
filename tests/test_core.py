@@ -26,6 +26,16 @@ def test_kvstack_query_and_persistence(tmp_path):
 
 def test_spiking_unit_fires_spikes():
     unit = SpikingUnit("u")
+    # 显式固定动力学参数, 保证确定性发放
+    # (随机初始化下 w_in 为负时强输入会被饱和为负, 偶发 200 步零发放)
+    unit._receptive = np.ones(16) / 4.0  # 正感受野投影
+    unit.w_in = 1.0
+    unit.b_in = 0.0
+    unit.w_out = 1.0
+    unit.b_out = 0.5
+    unit.threshold = 0.1
+    unit.w_attn = unit.b_attn = unit.w_state = unit.w_global = 0.0
+    unit.spontaneous_rate = 0.0
     strong = np.ones(16) * 5.0  # 强输入保证确定性发放
     spikes = sum(
         1 for _ in range(200)
