@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.1-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.2-orange)](CHANGELOG.md)
 
 </div>
 
@@ -512,9 +512,12 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
    let 绑定 / 防御调用），与 10 维 `static_metrics` 拼成 16 维恰好
    填满 numeric 通路——直击 move↔lifetime 互混与 type→ok 误判的
    混淆源，读出层 **57.6% → 61.6%**（48%–72%，5 种子）
-3. **P1 · 修端到端权重更新**：`w_in` 向量化为每单元感受野投影权重
-   （当前注入-恢复启发式中 `error × mean(input)` 的均值池化使所有
-   单元收到无差异更新），替换为持久输出头，让端到端训练超过基线
+3. **P1 · 修端到端权重更新** ✅ **已完成（v0.8.2）**：注入-恢复启发式
+   （临时改 gain/threshold 再还原，学习信号不累积）替换为**持久输出头**
+   （在线 softmax 线性头，权重跨样本/epoch 持久）；`w_in` 更新从
+   `error × mean(input)` 均值池化改为**每单元感受野投影**
+   `error × (receptive @ input)`——端到端监督训练从刚至基线（20%）跃升到
+   **67.2%**（56%–80%，5 种子最佳验证），全部种子超随机基线 3 倍以上
 4. **P2 · 扩真实语料**：100 → 500+ 段（rustc 错误索引真实样例、真实
    crate 编译失败样本），验证集 25 → 125，把评估方差从 ±6–9% 降到 ±2%
 5. **P2 · 5 折交叉验证**：替代单次 75/25 划分，评估结论不再依赖

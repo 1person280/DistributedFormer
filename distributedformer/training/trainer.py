@@ -1,18 +1,18 @@
 """
-DistributedFormer 训练器 v5.2
+DistributedFormer 训练器 v5.3 (v0.8.2 P1: 修端到端权重更新)
 
-改进点:
+改进点 (v5.3):
+- 持久输出头: 注入-恢复启发式 (临时改 gain/threshold 再还原,
+  学习信号不累积) 替换为持久可训练的线性 softmax 输出头,
+  权重跨样本/epoch 持久累积
+- w_in 向量化更新: 原规则 `w_in += lr * error * mean(input)`
+  的均值池化使所有单元收到无差异更新; 现按每单元感受野投影
+  `w_in += lr * error * (receptive @ input)`, 各单元更新分化
+
+保留 (v5.2):
 - 网络规模: depth=2 (4,368单元/层) + num_think_layers=1 => ~4,400总单元
-- 思考层参与监督: 不仅输出层,思考层也受监督信号调制
-- 改善学习规则: 发放率监督 + 思考层表征对齐 + STDP协同
-- 增加数据量支持: 从每类20→200样本
-
-实现:
-- 监督信号引导 + STDP 无监督学习协同
-- 多任务损失函数 (输出层 + 思考层表征)
-- 训练/验证循环
-- 权重保存/加载
-- 训练报告生成
+- 发放率/抑制/思考层对齐损失作为网络塑形信号
+- 训练/验证循环 / 权重保存/加载 / 训练报告生成
 """
 
 import numpy as np
@@ -119,8 +119,63 @@ class SpikeSupervisedLoss:
         return predicted == target_category and top[predicted] >= threshold
 
 
+class PersistentOutputHead:
+    """持久输出头 (v0.8.2 P1): 在线线性 softmax 头, 权重跨样本/epoch 持久
+
+    替换注入-恢复启发式: 后者每步临时改 gain/threshold 再还原,
+    学习信号无法累积; 本头是真正的可训练持久参数, 在线 SGD 更新,
+    带 running z-score 标准化与 L2 正则。
+    """
+
+    def __init__(self, n_features: int, n_classes: int = 5,
+                 lr: float = 0.02, l2: float = 1e-3, seed: int = 0):
+        rng = np.random.RandomState(seed)
+        self.n_features = n_features
+        self.n_classes = n_classes
+        self.W = rng.randn(n_classes, n_features + 1) * 0.01  # +1 偏置
+        self.lr = lr
+        self.l2 = l2
+        # running 标准化统计 (在线, 无需预先扫全数据集)
+        self.mean_ = np.zeros(n_features)
+        self.m2_ = np.ones(n_features) * 1e-8  # E[x^2]
+        self.n_seen = 0
+
+    def _standardize(self, x: np.ndarray, update: bool = False) -> np.ndarray:
+        if update:
+            self.n_seen += 1
+            alpha = max(1.0 / self.n_seen, 0.01)
+            self.mean_ += alpha * (x - self.mean_)
+            self.m2_ += alpha * (x * x - self.m2_)
+        std = np.sqrt(np.maximum(self.m2_ - self.mean_ ** 2, 1e-8))
+        return (x - self.mean_) / std
+
+    def _with_bias(self, x: np.ndarray) -> np.ndarray:
+        return np.append(x, 1.0)
+
+    def logits(self, x: np.ndarray) -> np.ndarray:
+        return self.W @ self._with_bias(x)
+
+    def predict(self, x: np.ndarray) -> int:
+        return int(np.argmax(self.logits(self._standardize(x))))
+
+    def update(self, x: np.ndarray, y: int) -> float:
+        """单样本在线 SGD (交叉熵), 返回该样本损失"""
+        xs = self._standardize(x, update=True)
+        xb = self._with_bias(xs)
+        logits = self.W @ xb
+        logits -= logits.max()
+        prob = np.exp(logits)
+        prob /= prob.sum()
+        loss = -np.log(max(prob[y], 1e-12))
+        # 梯度: (prob - onehot) ⊗ xb
+        grad = prob.copy()
+        grad[y] -= 1.0
+        self.W -= self.lr * (np.outer(grad, xb) + self.l2 * self.W)
+        return float(loss)
+
+
 class DFTrainer:
-    """DistributedFormer 训练器 v5.2"""
+    """DistributedFormer 训练器 v5.3"""
     
     def __init__(self, 
                  depth: int = 2,
@@ -129,14 +184,18 @@ class DFTrainer:
                  super_modulation: float = 0.25,
                  think_lr: float = 0.003,  # 思考层学习率 (较低)
                  use_think_supervision: bool = True,  # 是否启用思考层监督
-                 n_classes: int = 5):  # 真实类别数 (rustc 错误族)
+                 n_classes: int = 5,  # 真实类别数 (rustc 错误族)
+                 head_lr: float = 0.02,  # 持久输出头学习率
+                 fwd_steps: int = 4):  # 每样本前向步数 (水库充分演化)
         self.depth = depth
         self.dim = dim
         self.lr = learning_rate
         self.think_lr = think_lr
-        self.super_mod = super_modulation
+        self.super_mod = super_modulation  # 保留参数 (v5.3 注入式监督已移除)
         self.use_think_supervision = use_think_supervision
         self.n_classes = n_classes
+        self.head_lr = head_lr
+        self.fwd_steps = fwd_steps
         self.category_names = list(RustCodingTrainingDataset.CATEGORIES)
         
         # 网络 (训练模式: 跳过KV查询以加速)
@@ -161,84 +220,69 @@ class DFTrainer:
         self.best_val_loss = float('inf')
         self.best_val_acc = 0.0
         
+        # 持久输出头 (v0.8.2 P1): 首个样本时按特征维度惰性构建
+        self.head: PersistentOutputHead = None
+        
         self.train_history: List[Dict] = []
         self.val_history: List[Dict] = []
         
         self.patience = 15  # 增加耐心值 (大网络需要更多epoch)
         self.patience_counter = 0
     
-    def _inject_supervisory_signal(self, target_pattern: np.ndarray) -> dict:
-        """注入监督信号到输出层和思考层，返回原始参数用于恢复"""
-        original_params = {}
-        
-        # 1. 输出层监督
-        for i, unit in enumerate(self.df.output_units):
-            target_val = target_pattern[i]
-            original_params[f"out_{i}"] = (unit.gain, unit.threshold)
-            
-            if target_val > 0.3:
-                unit.gain = min(3.0, unit.gain + self.lr * target_val)
-                unit.threshold = max(0.2, unit.threshold - self.lr * target_val * 0.5)
-            else:
-                unit.threshold = min(1.5, unit.threshold + self.lr * 0.1)
-        
-        # 2. 思考层监督 (仅当启用时)
-        if self.use_think_supervision:
-            for layer in self.df.think_layers:
-                all_units = layer._all_units_cache
-                n_units = len(all_units)
-                
-                # 将思考层单元分组 (对应 n_classes 个类别)
-                group_size = max(1, n_units // self.n_classes)
-                
-                for cat in range(self.n_classes):
-                    if target_pattern[cat] > 0.3:
-                        # 目标类别: 降低阈值、增加增益
-                        start_idx = cat * group_size
-                        end_idx = min((cat + 1) * group_size, n_units)
-                        for idx in range(start_idx, end_idx):
-                            unit = all_units[idx]
-                            original_params[f"think_{layer.layer_id}_{idx}"] = (
-                                unit.gain, unit.threshold
-                            )
-                            unit.gain = min(2.5, unit.gain + self.think_lr * target_pattern[cat])
-                            unit.threshold = max(0.2, unit.threshold - self.think_lr * target_pattern[cat] * 0.3)
-        
-        self.df.global_modulation = 1.0 + self.super_mod * np.max(target_pattern)
-        return original_params
+    def _forward_features(self, inputs: Dict) -> Tuple[np.ndarray, int]:
+        """多步前向并提取水库特征 (v5.3: 供持久输出头消费)
+
+        特征 = [思考层各单元状态幅值 | 输出模式 | 思考层聚合模式]。
+        """
+        self.df.reset_state()
+        last_spikes = []
+        for _ in range(self.fwd_steps):
+            last_spikes = self.df.step(inputs)
+        out = self.df.get_output_pattern()
+        think = self.df.get_think_layer_pattern()
+        layer = self.df.think_layers[0]
+        if hasattr(layer, "_vec_state") and layer.N > 0:
+            reservoir = np.abs(layer._vec_state).mean(axis=1)
+        else:
+            reservoir = np.array([abs(u.state).mean()
+                                  for u in layer._all_units_cache])
+        return np.concatenate([reservoir, out, think]), len(last_spikes)
     
-    def _restore_supervisory_signal(self, original_params: dict) -> None:
-        """恢复输出层和思考层单元的原始参数"""
-        for key, (gain, threshold) in original_params.items():
-            if key.startswith("out_"):
-                idx = int(key.split("_")[1])
-                self.df.output_units[idx].gain = gain
-                self.df.output_units[idx].threshold = threshold
-            elif key.startswith("think_"):
-                # 解析 think_layerId_idx
-                parts = key.split("_")
-                layer_id = f"{parts[1]}_{parts[2]}"
-                idx = int(parts[3])
-                # 找到对应层和单元
-                for layer in self.df.think_layers:
-                    if layer.layer_id == layer_id and idx < len(layer._all_units_cache):
-                        unit = layer._all_units_cache[idx]
-                        unit.gain = gain
-                        unit.threshold = threshold
-                        break
+    def _sample_inputs(self, sample: TrainingSample) -> Dict:
+        """P0 双模态: 语法特征走 numeric 通路, 代码原文走 text 通路"""
+        return (sample.multimodal_input()
+                if sample.static_signal is not None
+                else {"numeric": sample.input_signal})
+    
+    @staticmethod
+    def _unit_receptive(unit) -> np.ndarray:
+        """单元感受野投影 (惰性构建, 与 SpikingUnit.step 同种子)"""
+        if unit._receptive is None:
+            import zlib
+            seed = zlib.crc32(unit.unit_id.encode("utf-8"))
+            unit._receptive = (np.random.RandomState(seed)
+                               .randn(unit.dim) / np.sqrt(unit.dim))
+        return unit._receptive
     
     def _update_weights_supervised(self, layer_input: np.ndarray, 
                                     target_pattern: np.ndarray,
                                     output_pattern: np.ndarray,
                                     think_pattern: np.ndarray,
                                     lr: float = 0.005) -> None:
-        """发放率监督学习: 根据目标 vs 实际输出调整权重 (v5.2: 含思考层)"""
+        """发放率监督学习 (v5.3: w_in 按每单元感受野投影向量化)
+
+        原缺陷: `w_in += lr * error * np.mean(layer_input)` 的均值池化
+        使所有单元收到无差异更新 (error 相同的单元增量和完全一致)。
+        现按 `receptive @ layer_input` 投影, 各单元对同一输入信号
+        收到方向/幅度分化的梯度。
+        """
         # 1. 输出层权重更新
         for i, unit in enumerate(self.df.output_units):
             error = target_pattern[i] - output_pattern[i]
             
             if abs(error) > 0.05:
-                unit.w_in += lr * error * np.mean(layer_input)
+                eff_input = float(self._unit_receptive(unit) @ layer_input)
+                unit.w_in += lr * error * eff_input
                 unit.w_in = np.clip(unit.w_in, -1.0, 1.0)
                 
                 unit.threshold = np.clip(
@@ -262,38 +306,41 @@ class DFTrainer:
                         end_idx = min((cat + 1) * group_size, n_units)
                         for idx in range(start_idx, end_idx):
                             unit = all_units[idx]
-                            unit.w_in += self.think_lr * error * np.mean(layer_input)
+                            eff_input = float(
+                                self._unit_receptive(unit) @ layer_input)
+                            unit.w_in += self.think_lr * error * eff_input
                             unit.w_in = np.clip(unit.w_in, -1.0, 1.0)
     
     def train_step(self, sample: TrainingSample) -> Tuple[float, bool, Dict]:
-        """单步训练 (v5.2: 思考层参与监督)"""
-        self.df.reset_state()
+        """单步训练 (v5.3: 持久输出头 + 向量化 w_in 更新)
+
+        v5.2 的注入-恢复启发式 (临时改 gain/threshold 再还原,
+        学习信号不累积) 已移除; 分类学习由持久输出头承担,
+        网络内部 w_in 仍按感受野投影监督更新。
+        """
+        # 前向传播 (P0 双模态) + 水库特征提取
+        features, n_spikes = self._forward_features(self._sample_inputs(sample))
         
-        # 注入监督信号到输出层和思考层
-        original_params = self._inject_supervisory_signal(sample.target_pattern)
+        # 惰性构建持久输出头
+        if self.head is None:
+            self.head = PersistentOutputHead(
+                n_features=len(features), n_classes=self.n_classes,
+                lr=self.head_lr, seed=0)
         
-        # 前向传播 (P0 双模态: numeric=语法特征 + text=代码原文)
-        output_spikes = self.df.step(sample.multimodal_input()
-                                    if sample.static_signal is not None
-                                    else {"numeric": sample.input_signal})
+        # 先预测 (更新前), 再在线更新 — 诚实反映当前泛化状态
+        pred = self.head.predict(features)
+        is_correct = (pred == sample.category)
+        ce_loss = self.head.update(features, sample.category)
+        
+        # 网络塑形损失 (发放率/激活/抑制/思考层对齐, 仅作监控与 w_in 更新依据)
         output_pattern = self.df.get_output_pattern()
         think_pattern = self.df.get_think_layer_pattern()
-        
-        # 恢复监督信号
-        self._restore_supervisory_signal(original_params)
-        
-        # 计算损失 (含思考层对齐)
-        loss, loss_details = self.loss_fn.compute(
+        shape_loss, loss_details = self.loss_fn.compute(
             output_pattern=output_pattern,
             target_pattern=sample.target_pattern,
             think_pattern=think_pattern,
-            actual_spike_count=len(output_spikes),
+            actual_spike_count=n_spikes,
             target_spike_count=2 + int(np.max(sample.target_pattern) * 3)
-        )
-        
-        # 计算准确率
-        is_correct = self.loss_fn.compute_accuracy(
-            output_pattern, sample.category, threshold=0.25
         )
         
         # 监督权重更新 (输出层 + 思考层, P0: 用双模态有效特征)
@@ -307,14 +354,15 @@ class DFTrainer:
             lr=self.lr
         )
         
-        self.df.global_modulation = 1.0
         self.global_step += 1
         
+        loss = ce_loss + 0.1 * shape_loss
         return loss, is_correct, {
             "loss": loss,
+            "ce_loss": ce_loss,
             **loss_details,
-            "output_spikes": len(output_spikes),
-            "output_pattern": output_pattern.tolist(),
+            "output_spikes": n_spikes,
+            "predicted": pred,
             "is_correct": is_correct
         }
     
@@ -352,7 +400,7 @@ class DFTrainer:
         return metrics
     
     def evaluate(self, samples: List[TrainingSample]) -> Dict:
-        """验证集评估"""
+        """验证集评估 (v5.3: 持久输出头预测, 双模态前向, 不更新任何权重)"""
         was_learning = self.df.learning_enabled
         self.df.enable_learning(False)
         
@@ -364,25 +412,26 @@ class DFTrainer:
         per_class_total = {c: 0 for c in range(self.n_classes)}
         
         for sample in samples:
-            self.df.reset_state()
+            features, n_spikes = self._forward_features(self._sample_inputs(sample))
             
-            output_spikes = self.df.step({"numeric": sample.input_signal})
+            if self.head is not None:
+                pred = self.head.predict(features)
+                is_correct = (pred == sample.category)
+            else:
+                is_correct = False
+            
             output_pattern = self.df.get_output_pattern()
             think_pattern = self.df.get_think_layer_pattern()
-            
             loss, _ = self.loss_fn.compute(
                 output_pattern=output_pattern,
                 target_pattern=sample.target_pattern,
                 think_pattern=think_pattern,
-                actual_spike_count=len(output_spikes),
+                actual_spike_count=n_spikes,
                 target_spike_count=2 + int(np.max(sample.target_pattern) * 3)
             )
             total_loss += loss
-            total_spikes += len(output_spikes)
+            total_spikes += n_spikes
             
-            is_correct = self.loss_fn.compute_accuracy(
-                output_pattern, sample.category, threshold=0.25
-            )
             if is_correct:
                 correct += 1
                 per_class_correct[sample.category] += 1
@@ -421,7 +470,7 @@ class DFTrainer:
         total_units = len(self.df._all_units)
         
         print(f"\n{'='*70}")
-        print(f"  DistributedFormer v5.2 全面训练")
+        print(f"  DistributedFormer v5.3 全面训练 (持久输出头 + 向量化 w_in)")
         print(f"{'='*70}")
         print(f"  网络配置: 深度={self.depth}, 思考层={self.df.num_think_layers}")
         print(f"  总单元数: {total_units:,} (目标~4,400)")
@@ -515,9 +564,16 @@ class DFTrainer:
         weights["_kv_key_w"] = self.df.kv_stack.key_w
         weights["_kv_value_w"] = self.df.kv_stack.value_w
         
+        # 持久输出头 (v0.8.2)
+        if self.head is not None:
+            weights["_head"] = {
+                "W": self.head.W, "mean": self.head.mean_,
+                "m2": self.head.m2_, "n_seen": int(self.head.n_seen),
+            }
+        
         np.savez(path, **{k: json.dumps(v, default=self._json_serialize) 
                           for k, v in weights.items()})
-    
+        
     def load_weights(self, path: str) -> None:
         """加载网络权重 (标量权重版本)"""
         data = np.load(path, allow_pickle=True)
@@ -531,6 +587,16 @@ class DFTrainer:
                     self.df.kv_stack.key_w = data[key].item()
                 elif key == "_kv_value_w":
                     self.df.kv_stack.value_w = data[key].item()
+                elif key == "_head":
+                    h = json.loads(data[key].item())
+                    if self.head is None:
+                        n_feat = len(h["W"][0]) - 1
+                        self.head = PersistentOutputHead(
+                            n_features=n_feat, n_classes=self.n_classes)
+                    self.head.W = np.array(h["W"])
+                    self.head.mean_ = np.array(h["mean"])
+                    self.head.m2_ = np.array(h["m2"])
+                    self.head.n_seen = h["n_seen"]
                 continue
             
             if key in units_map:
@@ -561,7 +627,7 @@ class DFTrainer:
         """生成训练报告"""
         n = min(len(self.train_history), len(self.val_history))
         total_units = len(self.df._all_units)
-        report = f"""# DistributedFormer v5.2 全面训练报告
+        report = f"""# DistributedFormer v5.3 全面训练报告
 
 ## 训练配置
 | 参数 | 值 |
