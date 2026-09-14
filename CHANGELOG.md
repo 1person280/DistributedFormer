@@ -1,5 +1,41 @@
 # 更新日志
 
+## v0.8.0 (2026-09-14)
+
+P0 双模态注入：消除词袋编码信息瓶颈，真实数据读出层 36% → 57.6%。
+
+### 诊断（本次变更的依据）
+- 特征通路对照（同一真实语料、同一线性读出、5 种子分层划分）：
+  static_metrics 线性可分 71.2% vs 词袋 TF-IDF 40%（类间/类内距离比
+  1.36 vs 0.68 负可分）——瓶颈在编码阶段而非网络
+- 混淆集中在 move↔lifetime（语法位置差异被词袋丢失）与 type→ok
+  （短代码词面几乎一致）
+
+### 新增
+- `TrainingSample.static_signal`：10 维 static_metrics 语法扫描特征
+  （语料内逐维归一化 [0,1]，跨进程确定）
+- `TrainingSample.multimodal_input()`：返回
+  `{"numeric": static_signal, "text": 代码原文}` 双模态字典，供
+  CubeGPT.step() / CubeFeatureExtractor.features() 直接消费
+
+### 变更
+- `training/readout.py` `run_validation`：从单模态
+  PatternExtractor（词袋→DistributedFormer 水库）切换为
+  CubeFeatureExtractor 双模态注入
+- `training/trainer.py` `train_step`：端到端前向同步双模态；监督
+  权重更新改用语法特征信号
+
+### 真实数据评估结果
+- 读出层（R1, depth=1, 5 种子）：**57.6%**（52%–64%），
+  P0 前 36% ± 6——提升 21.6pp，超随机基线（20%）2.9 倍
+- 端到端监督训练 5 epochs 达 20%（P0 前 16%），刚至基线未超过——
+  学习规则缺陷（w_in 标量更新）待 P1 修复
+- 路线图新增「36% 瓶颈提升方案」5 项（P0 双模态 / P1 结构感知编码 /
+  P1 修端到端权重更新 / P2 扩语料 / P2 交叉验证），P0 已完成
+
+### 质量
+- 测试 104 项全绿，无回归
+
 ## v0.7.5 (2026-09-14)
 
 训练数据真实化：彻底移除合成训练数据，训练/评估管道 100% 采用真实数据集基准。

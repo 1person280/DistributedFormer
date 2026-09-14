@@ -6,8 +6,10 @@
 提取器), 仅训练线性 softmax 读出层。这是 reservoir computing 的
 标准做法, 可明确判断网络内部表征是否携带类别信息。
 
-验证协议 (v0.7.5, 训练数据真实化):
+验证协议 (v0.7.5+, P0 双模态注入):
 - 真实 Rust 编码基准数据 (move/borrow/lifetime/type/ok, 5 分类)
+- 双模态注入: numeric=static_metrics 语法特征 + text=代码原文
+  (CubeGPT 水库特征), 单模态词袋的编码信息瓶颈已消除
 - 多随机种子, 分层训练/验证集分离
 - 对照随机基线 (20%) 与多数类基线
 """
@@ -101,15 +103,20 @@ class LinearReadout:
 
 
 def run_validation(seed: int = 0, depth: int = 1, verbose: bool = False) -> Dict:
-    """单种子验证 (真实 Rust 编码基准): 返回读出层/随机基线/多数类基线准确率"""
+    """单种子验证 (真实 Rust 编码基准, P0 双模态注入):
+    numeric=static_metrics 语法特征 + text=代码原文 → CubeGPT 水库特征
+    → 线性读出。返回读出层/随机基线/多数类基线准确率。
+    """
     dataset = RustCodingTrainingDataset(dim=16)
     train, val = dataset.generate_dataset(train_ratio=0.75, seed=seed)
     random_baseline = dataset.RANDOM_BASELINE
 
-    extractor = PatternExtractor(depth=depth, seed=seed)
+    extractor = CubeFeatureExtractor(depth=depth, seed=seed)
     t0 = time.time()
-    X_train = np.stack([extractor.features(s.input_signal) for s in train])
-    X_val = np.stack([extractor.features(s.input_signal) for s in val])
+    # P0: 双模态注入 — 语法特征走 numeric 通路, 代码原文走 text 通路
+    X_train = np.stack([extractor.features(s.multimodal_input())
+                         for s in train])
+    X_val = np.stack([extractor.features(s.multimodal_input()) for s in val])
     y_train = np.array([s.category for s in train])
     y_val = np.array([s.category for s in val])
     extract_sec = time.time() - t0

@@ -272,8 +272,10 @@ class DFTrainer:
         # 注入监督信号到输出层和思考层
         original_params = self._inject_supervisory_signal(sample.target_pattern)
         
-        # 前向传播
-        output_spikes = self.df.step({"numeric": sample.input_signal})
+        # 前向传播 (P0 双模态: numeric=语法特征 + text=代码原文)
+        output_spikes = self.df.step(sample.multimodal_input()
+                                    if sample.static_signal is not None
+                                    else {"numeric": sample.input_signal})
         output_pattern = self.df.get_output_pattern()
         think_pattern = self.df.get_think_layer_pattern()
         
@@ -294,9 +296,11 @@ class DFTrainer:
             output_pattern, sample.category, threshold=0.25
         )
         
-        # 监督权重更新 (输出层 + 思考层)
+        # 监督权重更新 (输出层 + 思考层, P0: 用双模态有效特征)
+        update_signal = (sample.static_signal if sample.static_signal is not None
+                         else sample.input_signal)
         self._update_weights_supervised(
-            sample.input_signal,
+            update_signal,
             sample.target_pattern,
             output_pattern,
             think_pattern,

@@ -1,18 +1,18 @@
 {
-  "total_epochs": 20,
-  "best_val_loss": 1.8782289049716139,
-  "best_val_accuracy": 0.16,
-  "final_val_accuracy": 0.04,
-  "final_val_loss": 2.4295548004315743,
+  "total_epochs": 5,
+  "best_val_loss": 3.907387224016546,
+  "best_val_accuracy": 0.2,
+  "final_val_accuracy": 0.2,
+  "final_val_loss": 5.500488613997543,
   "train_samples": 75,
   "val_samples": 25,
-  "elapsed_seconds": 236.51791906356812,
+  "elapsed_seconds": 12.273869514465332,
   "class_accuracy": {
-    "0": 0.0,
+    "0": 1.0,
     "1": 0.0,
     "2": 0.0,
-    "3": 0.2,
+    "3": 0.0,
     "4": 0.0
   },
-  "total_units": 4448
+  "total_units": 896
 }

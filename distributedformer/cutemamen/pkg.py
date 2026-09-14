@@ -40,7 +40,7 @@ EPISODIC_PATH = "memory/episodic.json"
 SEMANTIC_PATH = "memory/semantic.json"
 
 # 内核版本 (min_core_version 检查用); 延迟读包版本避免循环导入
-CORE_VERSION = "0.7.5"
+CORE_VERSION = "0.8.0"
 
 # ── v1 → v2 解码规则 (规范 §2 / COMPATIBILITY.md §4) ──────────
 V1_RENAMED_FIELDS = {"model_type": "base_model"}

@@ -8,10 +8,17 @@
 (move / borrow / lifetime / type / ok), 每段附带真实 rustc 错误码
 与报错信息。
 
-样本编码 (真实数据 → 脉冲信号):
+样本编码 (真实数据 → 脉冲信号, v0.7.5+ 双模态注入 P0):
 - input_signal: `SpikeEncoder.encode_text(代码原文)` — 代码感知
   TF-IDF 脉冲编码 (保留 & ' -> :: 等代码 token, crc32 确定性哈希),
   真实代码文本直接驱动脉冲网络
+- static_signal: `static_metrics(代码)` — 真实语法扫描特征 (10 维:
+  长度/& 数/mut 数/生命周期符/clone 数/move 数/fn 数/-> 数/
+  嵌套块深度/:: 数), 走 numeric 通路注入
+- multimodal_input(): 返回 {"numeric": static_signal 归一化,
+  "text": 代码原文} 双模态输入字典, 供 CubeGPT / CubeFeatureExtractor
+  的 step() 直接消费——判别信息不再在词袋哈希中丢失
+  (v0.7.5 诊断: 纯静态特征线性可分 71.2%, 词袋仅 40%)
 - target_pattern: 16 维监督输出模式, 维度 0-4 对应五类编译错误族,
   其余维度为低强度基底
 
@@ -31,7 +38,7 @@ from typing import Dict, List, Tuple
 
 from distributedformer.codec.spike_codec import SpikeEncoder
 from distributedformer.data.rust_coding import (
-    LABELS, LABEL_NAMES, load_rust_coding, stratified_split
+    LABELS, LABEL_NAMES, load_rust_coding, static_metrics, stratified_split
 )
 
 
@@ -41,9 +48,18 @@ class TrainingSample:
     sample_id: str
     category: int           # 0=move, 1=borrow, 2=lifetime, 3=type, 4=ok
     category_name: str
-    input_signal: np.ndarray     # 16维输入脉冲 (真实代码文本编码)
+    input_signal: np.ndarray     # 16维文本脉冲 (代码原文 TF-IDF 编码)
     target_pattern: np.ndarray   # 16维期望输出模式
     metadata: Dict
+    static_signal: np.ndarray = None  # 10维语法扫描特征 (numeric 通路)
+
+    def multimodal_input(self) -> Dict:
+        """双模态输入字典: numeric=语法特征, text=代码原文 (P0 方案)
+
+        供 CubeGPT.step() / CubeFeatureExtractor.features() 直接消费,
+        static_metrics 的判别信息 (诊断线性可分 71.2%) 不再丢失。
+        """
+        return {"numeric": self.static_signal, "text": self.metadata["code"]}
 
 
 class RustCodingTrainingDataset:
@@ -75,6 +91,7 @@ class RustCodingTrainingDataset:
         self.dim = dim
         self.encoder = SpikeEncoder(dim=dim)
         self._corpus = load_rust_coding()  # 真实语料, 100 段
+        self._static_max = None  # 惰性计算: 语料内静态特征逐维最大值
 
     def _make_target_pattern(self, category: int) -> np.ndarray:
         """生成监督目标输出模式 (维度 0-4 为类别位, 其余低强度基底)"""
@@ -86,8 +103,10 @@ class RustCodingTrainingDataset:
         return np.clip(pattern, 0.0, 1.0)
 
     def _to_sample(self, s: Dict, idx: int) -> TrainingSample:
-        """真实语料条目 → 脉冲训练样本"""
+        """真实语料条目 → 脉冲训练样本 (双模态)"""
         code = s["code"]
+        # 语法扫描特征: 每维按语料内最大值归一化到 [0, 1] (numeric 通路)
+        raw_static = static_metrics(code)
         return TrainingSample(
             sample_id=f"{s['label_name']}_{idx:03d}",
             category=s["label"],
@@ -100,8 +119,16 @@ class RustCodingTrainingDataset:
                 "rustc": s["rustc"],
                 "msg": s["msg"],
                 "code_len": len(code),
-            }
+            },
+            static_signal=self._normalize_static(raw_static),
         )
+
+    def _normalize_static(self, raw: np.ndarray) -> np.ndarray:
+        """静态特征归一化到 [0, 1] (语料内逐维最大值, 跨进程确定)"""
+        if self._static_max is None:
+            stacked = np.stack([static_metrics(s["code"]) for s in self._corpus])
+            self._static_max = stacked.max(axis=0)
+        return np.clip(raw / np.maximum(self._static_max, 1e-8), 0.0, 1.0)
 
     def generate_dataset(self, train_ratio: float = 0.75,
                          seed: int = 0) -> Tuple[List[TrainingSample],
@@ -164,6 +191,8 @@ if __name__ == "__main__":
         print(f"    报错: {sample.metadata['msg'][:60]}")
         print(f"    代码: {sample.metadata['code'][:60]!r}")
         print(f"    输入信号非零维: {np.count_nonzero(sample.input_signal)}")
+        print(f"    语法特征 (numeric 通路): "
+              f"[{', '.join(f'{v:.2f}' for v in sample.static_signal[:5])}...]")
         print(f"    目标模式: [{', '.join(f'{v:.2f}' for v in sample.target_pattern[:5])}...]")
 
     print("\n" + "=" * 60)

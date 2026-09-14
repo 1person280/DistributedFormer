@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.7.5-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.0-orange)](CHANGELOG.md)
 
 </div>
 
@@ -488,9 +488,35 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
   `data_generator.py`），训练/评估管道 100% 采用真实 Rust 编码基准语料
   （`RustCodingTrainingDataset`），训练器泛化为 5 类，统一输出随机/多数类
   评估基线；真实数据读出层验证 28%–44%（5 种子均值 36%）vs 随机 20%
+- [x] v0.8.0 - **P0 双模态注入**：诊断定位 36% 瓶颈在词袋编码阶段
+  （类间/类内距离比 0.68 负可分），`static_metrics` 语法特征走 numeric
+  通路 + 代码原文走 text 通路，真实数据读出层验证 **57.6%**（52%–64%，
+  5 种子），超随机基线 2.9 倍
 - [ ] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路, RustCodingPlugin 导出 X/y）
 - [ ] Redis 分布式 KV 堆在多节点工作流中实际启用
 - [ ] 学习规则改进：目标是在 ≥2 个真实任务上显著超过随机基线
+
+### 36% 瓶颈提升方案 (v0.7.5 诊断结论)
+
+特征通路诊断（同一真实语料、同一线性读出层、5 种子分层划分）定位了
+读出层 36% 的瓶颈：**判别信息在编码阶段即丢失**——词袋 TF-IDF 哈希的
+类间/类内距离比 0.68（负可分），而纯静态语法特征 `static_metrics`
+可达 71.2%。据此排定五个提升方向（按优先级）：
+
+1. **P0 · 双模态注入** ✅ **已完成（v0.8.0）**：`RustCodingTrainingDataset`
+   把 `static_metrics`（语法扫描特征）走 numeric 通路 + 代码原文走
+   text 通路，读出层用 `CubeFeatureExtractor`（v0.6.0 双模态曾达
+   57.6%，纯静态特征诊断 71.2%）——实测 **57.6%**（52%–64%，5 种子）
+2. **P1 · 结构感知编码**（+5%–10%）：dim 16→64，加位置特征（错误行
+   位置、`&mut` 出现位置、返回类型是否含 `&`）、字符 n-gram 替代
+   词袋——直击 move↔lifetime 互混与 type→ok 误判的混淆源
+3. **P1 · 修端到端权重更新**：`w_in` 向量化为每单元感受野投影权重
+   （当前注入-恢复启发式中 `error × mean(input)` 的均值池化使所有
+   单元收到无差异更新），替换为持久输出头，让端到端训练超过基线
+4. **P2 · 扩真实语料**：100 → 500+ 段（rustc 错误索引真实样例、真实
+   crate 编译失败样本），验证集 25 → 125，把评估方差从 ±6–9% 降到 ±2%
+5. **P2 · 5 折交叉验证**：替代单次 75/25 划分，评估结论不再依赖
+   划分运气
 
 ## 已知问题（v0.7.2 状态）
 
