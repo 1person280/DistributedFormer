@@ -627,3 +627,54 @@ def test_migrate_directory_recursive_and_backup(tmp_path):
 
 def test_migrate_missing_path_severe_error(tmp_path):
     assert migrate_main([str(tmp_path / "nope.CuteMamen")]) == 2
+
+
+# ═══════════════════════════════════════════════════════════
+# 10. RustCodingPlugin: 真实语料思考插件 (训练材料)
+# ═══════════════════════════════════════════════════════════
+
+def test_rust_plugin_training_material(kernel):
+    """内置 100 段真实 Rust 语料 → 训练材料 + 5 类原型"""
+    from distributedformer.cutemamen import RustCodingPlugin
+    plugin = RustCodingPlugin("rust-coding")
+    kernel.mount(plugin)
+    assert plugin.corpus_size() == 100
+    assert sorted(plugin.prototypes) == ["borrow", "lifetime", "move",
+                                         "ok", "type"]
+    X, y = plugin.training_data()
+    assert X.shape == (100, 10) and y.shape == (100,)
+    assert max(y) == 4  # 5 类
+    assert plugin.memory.get("corpus_size") == 100
+
+
+def test_rust_plugin_classifies_and_emits(kernel):
+    """路由 + on_think 分类 + 事件总线广播"""
+    from distributedformer.cutemamen import RustCodingPlugin
+    plugin = RustCodingPlugin("rust-coding")
+    kernel.mount(plugin)
+    seen = []
+    kernel.bus.subscribe("rust.classified", lambda e: seen.append(e))
+    code = ("fn longest(s1: &str, s2: &str) -> &str {\n"
+            "    if s1.len() > s2.len() { s1 } else { s2 }\n}")
+    out = kernel.think({"topic": "rust", "data": code})
+    assert out and out[0]["label"] == "lifetime"
+    assert out[0]["confidence"] > 0
+    assert seen and seen[0]["topic"] == "rust.classified"
+    assert plugin.think_count == 1
+    # 支持 {"code": ...} 字典形式; 数据面缺失时静默返回 None
+    assert kernel.think({"topic": "rust",
+                         "data": {"code": "let r = &String::from(\"x\");"}})[0]["label"]
+
+
+def test_rust_plugin_pkg_roundtrip(tmp_path, kernel):
+    """原型权重存档 → .CuteMamen → 按 base_model 热加载往返"""
+    from distributedformer.cutemamen import RustCodingPlugin, load_pkg, save_pkg
+    plugin = RustCodingPlugin("rust-coding")
+    pkg = str(tmp_path / "rust_coding.CuteMamen")
+    save_pkg(plugin, pkg)
+    loaded, manifest = load_pkg(pkg)
+    assert manifest["base_model"] == "rust.coding"
+    assert isinstance(loaded, RustCodingPlugin)
+    assert loaded.corpus_size() == 100  # 原型权重随包还原
+    code = "let x: i32 = \"hello\";"
+    assert loaded.on_think({"topic": "rust", "data": code}, None)["label"] == "type"

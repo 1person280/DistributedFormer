@@ -8,14 +8,14 @@
 · CuteMamen 固定内核 + 专家思考插件
 面向流式监控、异常检测等持续在线场景
 
-[!\[CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
-[!\[PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
-[!\[License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[!\[Version](https://img.shields.io/badge/version-0.7.2-orange)](CHANGELOG.md)
+[![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
+[![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.7.3-orange)](CHANGELOG.md)
 
 </div>
 
-\---
+---
 
 ## 这是什么
 
@@ -37,6 +37,7 @@ DistributedFormer 探索一条不同于 Transformer 的路线：**用超简单�
 |**CubeGPT**|4 个模态面（每面 = 16 单元输入端口 + 深度 2 分形皮层 4,368 单元）环形侧连 + 顶层 OutputModule 头部，4×4,400×16 ≈ 281K 参数|
 |**CubeGPTKernel** (v0.7.2)|模型精简形态：内核只留必要思考（棱路由 / KV 记忆 / 输出头 / 节律），皮层计算全部外移为 FacePlugin 思考插件|
 |**CuteMamen 内核** (v0.7.2)|通用固定内核（Nest）：路由器 + 工作记忆 + 插件注册表 + 内存预算 LRU 淘汰，随用随载热加载|
+|**RustCodingPlugin** (v0.7.3)|内嵌 100 段真实 Rust 语料的思考插件：训练材料 `training_data()` 导出 + 最近原型分类（每类原型权重随包往返）|
 |**16 参数脉冲单元**|集成放电模型：输入门控 + 状态反馈 + 疲劳/不应期 + 自发放电（默认模式网络，无输入仍"持续思考"）|
 |**多模态顶层模块**|numeric / text / timeseries / image 四种模态各拥有独立的 16 单元输入模块（含绑定编码器），输出为独立顶层 OutputModule，模态按权重融合进思考层|
 |**分形递归**|每层 16 单元，深度 d 的思考层含 Σ16^k (k=1..d+1) 个单元，深度 2 ≈ 4,368 单元 / 69K 参数|
@@ -162,7 +163,7 @@ kernel.unmount("lora-wq")                          # 卸载自动存档并注册
 kernel.think({"topic": "lora-wq", "data": x})      # 用到时现场热加载
 ```
 
-标准要点（全部已实现，94 项测试覆盖）：
+标准要点（全部已实现，97 项测试覆盖）：
 
 |规范条款|实现|
 |-|-|
@@ -390,7 +391,7 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 DistributedFormer/
 ├── distributedformer/           # Python 包
 │   ├── core/                    # 脉冲单元 / 分形层 / KV 堆 / CubeGPT / 模态面 pkg
-│   ├── cutemamen/               # CuteMamen 插件标准 (v0.7.2): 内核 / 插件 / 事件总线 / 包格式 / LoRA 桥接 / 迁移工具
+│   ├── cutemamen/               # CuteMamen 插件标准 (v0.7.2): 内核 / 插件 / 事件总线 / 包格式 / LoRA 桥接 / 迁移工具 / Rust coding 插件
 │   ├── codec/                   # 数值·文本·时序 → 脉冲编码; 脉冲 → 动作解码
 │   ├── agents/                  # 5 类脉冲智能体
 │   ├── workflow/                # 工作流引擎 + 消息路由
@@ -399,7 +400,7 @@ DistributedFormer/
 │   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件
-├── tests/                       # pytest 测试 (94 项)
+├── tests/                       # pytest 测试 (97 项)
 ├── experiments/                 # 消融实验脚本、结果与报告 (E1-E5, R1-R2)
 ├── reports/                     # 历史训练与实验报告
 ├── visualization/               # 训练曲线 / 准确率图
@@ -431,7 +432,36 @@ v0.2.0 的工程化重构（可安装包、CLI、测试、部署链路修复）�
   [`experiments/rust\\\_report.md`](experiments/rust_report.md)
   * 各类别 (种子均值): 借用冲突 76% / 生命周期 88% / 所有权移动 48% /
     类型不匹配 44% / 合法代码 32%
-* 复现: `python experiments/rust\\\_benchmark.py`
+* 复现: `python experiments/rust\_\_benchmark.py`
+
+## Rust coding 思考插件 (v0.7.3)
+
+把 v0.6.0 的真实语料装进一个 CuteMamen 专家插件, **填补训练材料空白**:
+训练监督不再只有合成随机数据, 插件自带 100 段真实 Rust 代码 × 5 类真实
+rustc 错误作为可调用的训练/评估材料, 内核无需额外数据源。
+
+```python
+from distributedformer.cutemamen import CuteMamenKernel, RustCodingPlugin
+
+kernel = CuteMamenKernel(dim=16)
+plugin = RustCodingPlugin("rust-coding")            # route 默认 "rust"
+kernel.mount(plugin)
+
+# 训练材料: 直接导出真实特征 + 标签, 供端到端训练 (路线图数据通路)
+X, y = plugin.training_data()                       # (100, 10) / (100,)
+
+# 现场思考: 分类一段 Rust 代码命中的编译错误类别
+result = kernel.think({"topic": "rust",
+                       "data": "fn longest(s1: &str, s2: &str) -> &str {\n  ...\n}"})
+# [{'label': 'lifetime', 'label_name': '生命周期', 'rustc': 'E0597/E0106/E0515/E0716', 'confidence': ...}]
+
+# 存档 / 随用随载: 原型权重 (每类 static_metrics 质心) 随包往返
+save_pkg(plugin, "cutemamen_pkgs/rust_coding.CuteMamen")
+loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_model=rust.coding
+```
+
+可学习权重 = 每类别原型特征向量, 经 `.CuteMamen` 包 weights/ 存档还原;
+分类用最近原型 + softmax 置信度, 结果广播 `rust.classified` 事件供插件间订阅。
 
 ## 路线图
 
@@ -449,7 +479,9 @@ v0.2.0 的工程化重构（可安装包、CLI、测试、部署链路修复）�
   + 插件注册表）与 `.CuteMamen` 专家插件包（on_load/on_think/on_unload 生命周期钩子、
   三级记忆存档、事件总线通信、内存预算淘汰、LoRA/Adapter 兼容桥接）；
   **模型精简**为 CubeGPTKernel——必要思考留内核，皮层计算全部由思考插件实现
-- [ ] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路）
+- [x] v0.7.3 - **Rust coding 思考插件**：内嵌 100 段真实 Rust 语料作训练材料
+  填补训练数据空白（`training_data()` 数据通路），每类原型权重随包往返热加载
+- [ ] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路, RustCodingPlugin 导出 X/y）
 - [ ] KV 堆注意力检索向量化（当前 python 循环打分，大堆场景有 scan_limit 限额）
 - [ ] 真实数据集基准（替代纯合成数据），建立有意义的评估基线
 - [ ] Redis 分布式 KV 堆在多节点工作流中实际启用
@@ -469,8 +501,11 @@ FractalLayer / 输入端口 / 输出头的真实注意力来源，记忆影响�
 （PowerShell toast，`DF\\\_NOTIFY\\\_MODE=sim` 可切回打印）；真实 HTTP POST
 （stdlib urllib，endpoint 或 `DF\\\_WEBHOOK\\\_URL` 配置，10s 超时，失败降级不中断）。
 * ~~训练监督以合成数据为主~~ **已起步（v0.6.0）**：新增 Rust coding 真实需求
-基准（真实代码 + 真实 rustc 错误类别），读出层 57.6% ± 10.3% vs 随机 20%
-（复测值）；扩展更多真实数据集与真实代码语料仍在路线图中。
+  基准（真实代码 + 真实 rustc 错误类别），读出层 57.6% ± 10.3% vs 随机 20%
+  （复测值）；扩展更多真实数据集与真实代码语料仍在路线图中。
+* ~~训练材料只有合成数据~~ **已填补（v0.7.3）**：`RustCodingPlugin` 内嵌 100 段
+  真实 Rust 语料, `training_data()` 导出真实特征+标签供端到端训练, 每类原型
+  权重随 `.CuteMamen` 包往返热加载
 * ~~训练报告只有占位符~~ **已修复（v0.7.0）**：`report_generate` 动作现在渲染
 真实统计数据（智能体状态 / CubeGPT 网络统计 / KV 堆记忆 / STDP 学习统计），
 不再产生 `[自动生成内容占位]`。

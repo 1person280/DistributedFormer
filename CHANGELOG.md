@@ -1,5 +1,31 @@
 # 更新日志
 
+## v0.7.3 (2026-09-14)
+
+Rust coding 思考插件: 内嵌真实语料填补训练材料空白。
+
+### 新增
+- `distributedformer/cutemamen/rust_coding.py`: **RustCodingPlugin** —
+  静态识别一段 Rust 代码命中的编译错误类别 (move / borrow / lifetime /
+  type / ok)。后台携带 v0.6.0 的 Rust coding 真实需求语料 (100 段真实
+  风格 Rust 代码 × 5 类真实 rustc 错误) 作为**训练材料**, 直接消费真实
+  代码文本, 不再依赖合成随机数据
+- `training_data()`: 导出真实训练材料 (100×10 特征矩阵 + 标签索引),
+  供端到端训练 / 评估 (呼应路线图 "真实数据集端到端训练" 的数据通路)
+- 可学习权重 = 每类别 static_metrics 原型 (类标质心), 随 `.CuteMamen`
+  包 weights/ 存档往返; on_think 最近原型分类 + softmax 置信度, 总线广播
+  `rust.classified` 供插件间通信; route 默认 "rust"
+- `native_registry` 新增 `"rust.coding"` → RustCodingPlugin, 包可随用随载
+  热加载; 附 `cutemamen_pkgs/rust_coding.CuteMamen` 现成包
+
+### 变更
+- 版本 0.7.2 → 0.7.3 (pyproject / `__version__` / pkg.CORE_VERSION /
+  manifest.min_core_version)
+
+### 质量
+- 新增 tests/test_cutemamen.py 3 项 (训练材料导出 / 路由分类与总线 /
+  pkg 往返), 测试总计 97 项全绿 (94 → 97)
+
 ## v0.7.2 (2026-09-14)
 
 CuteMamen 插件标准落地 + 模型精简。新增 `distributedformer/cutemamen` 包

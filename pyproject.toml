@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "distributedformer"
-version = "0.7.2"
+version = "0.7.3"
 description = "CubeGPT — cube-connected multimodal spiking pulse model (4 faces x ~4.4K units x 16 params ~ 281K), with KV-stack memory and multi-agent pulse workflows"
 readme = "README.md"
 requires-python = ">=3.9"

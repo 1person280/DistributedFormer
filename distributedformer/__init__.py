@@ -9,9 +9,11 @@ DistributedFormer — 事件驱动的脉冲神经网络智能体框架
 v0.7.2: CuteMamen 插件标准落地 — 通用固定内核 (CuteMamenKernel)
 + .CuteMamen 专家插件包; 模型精简为 CubeGPTKernel
 (必要思考留内核, 其余思考由插件实现)。
+v0.7.3: Rust coding 思考插件 (RustCodingPlugin) — 内嵌 100 段真实
+Rust 语料作训练材料, 填补训练监督脱离实际的空白。
 """
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
 
 __all__ = [
     "__version__",
@@ -37,8 +39,8 @@ __all__ = [
 
 _CUTEMAMEN_EXPORTS = {
     "CuteMamenKernel", "CubeGPTKernel", "ExpertPlugin", "FacePlugin",
-    "LoRABridgePlugin", "LoRAAdapter", "EventBus", "ExpertPlugin",
-    "PluginMemory", "PluginContext", "save_pkg", "load_pkg",
+    "RustCodingPlugin", "LoRABridgePlugin", "LoRAAdapter", "EventBus",
+    "ExpertPlugin", "PluginMemory", "PluginContext", "save_pkg", "load_pkg",
     "read_manifest", "decode_manifest", "apply_lora", "lora_from_weight",
     "migrate_main",
 }
