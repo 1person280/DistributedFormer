@@ -492,6 +492,9 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
   （类间/类内距离比 0.68 负可分），`static_metrics` 语法特征走 numeric
   通路 + 代码原文走 text 通路，真实数据读出层验证 **57.6%**（52%–64%，
   5 种子），超随机基线 2.9 倍
+- [ ] 分类式 token：一个 token 占 64 比特数据，纯文本场景下前 32 比特为
+  token 组、后 32 比特直接为 utf8-mb4 字符；设硬性分组，如
+  `0x00000000xxxxxxxx` 保留为 utf8-mb4 字符 token 组
 - [ ] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路, RustCodingPlugin 导出 X/y）
 - [ ] Redis 分布式 KV 堆在多节点工作流中实际启用
 - [ ] 学习规则改进：目标是在 ≥2 个真实任务上显著超过随机基线
