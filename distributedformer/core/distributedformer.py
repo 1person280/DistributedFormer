@@ -114,9 +114,13 @@ class KVStack:
     """
     分布式KV堆记忆系统
     替代Transformer的KV Cache，支持跨智能体注意力查询
+
+    v0.7.4 向量化: entries dict 仍为权威存储 (兼容外部读取),
+    内部维护增量矩阵索引 (_keys/_vals 等, 条目对象持有矩阵行视图),
+    query/retrieve 打分与 top-k 全程 numpy 批量计算, 无 Python 逐条循环。
     """
-    
-    def __init__(self, capacity: int = 100000, dim: int = 16, 
+
+    def __init__(self, capacity: int = 100000, dim: int = 16,
                  retention_policy: str = "lru_7d"):
         self.capacity = capacity
         self.dim = dim
@@ -126,97 +130,257 @@ class KVStack:
         self.query_w = np.random.randn(dim) * 0.1
         self.key_w = np.random.randn(dim) * 0.1
         self.value_w = np.random.randn(dim) * 0.1
-        
-    def push(self, entry_id: str, key_signal: np.ndarray, 
+        # ── 向量化索引 (行号 ↔ entry_id 双向映射) ──
+        self._ids: List[str] = []            # 行号 -> entry_id
+        self._row: Dict[str, int] = {}       # entry_id -> 行号
+        self._n = 0                          # 存活条目数
+        self._alloc = 0                      # 已分配行数
+        self._seq = 0                        # 插入序号 (单调递增, scan_limit 用)
+        self._keys = self._vals = None       # (alloc, dim)
+        self._ts = self._last_acc = self._acc_cnt = self._seqs = None
+
+    # ── 索引维护 ──────────────────────────────────────────
+
+    def _grow(self, min_rows: int) -> None:
+        """按需扩容矩阵 (指数增长, 上限 capacity)"""
+        if min_rows <= self._alloc:
+            return
+        new_alloc = max(min_rows, min(self.capacity, max(64, self._alloc * 2)))
+        if self._alloc == 0:
+            self._keys = np.zeros((new_alloc, self.dim))
+            self._vals = np.zeros((new_alloc, self.dim))
+            self._ts = np.zeros(new_alloc)
+            self._last_acc = np.zeros(new_alloc)
+            self._acc_cnt = np.zeros(new_alloc, dtype=np.int64)
+            self._seqs = np.zeros(new_alloc, dtype=np.int64)
+        else:
+            for name in ("_keys", "_vals"):
+                arr = getattr(self, name)
+                grown = np.zeros((new_alloc, self.dim))
+                grown[:self._alloc] = arr
+                setattr(self, name, grown)
+            for name in ("_ts", "_last_acc", "_acc_cnt", "_seqs"):
+                arr = getattr(self, name)
+                grown = np.zeros(new_alloc, dtype=arr.dtype)
+                grown[:self._alloc] = arr
+                setattr(self, name, grown)
+        self._alloc = new_alloc
+
+    def _ensure_sync(self) -> None:
+        """外部直接改动 entries (如 entries.clear()) 后自动重建索引"""
+        if len(self.entries) != self._n:
+            self._rebuild_index()
+
+    def _rebuild_index(self) -> None:
+        """从 entries dict 重建矩阵索引 (dict 保持插入序)"""
+        n = len(self.entries)
+        self._grow(max(n, 1))
+        self._ids = []
+        self._row = {}
+        i = 0
+        for eid, entry in self.entries.items():
+            self._keys[i] = self._coerce_vec(entry.key_signal)
+            self._vals[i] = self._coerce_vec(entry.value_state)
+            self._ts[i] = entry.timestamp
+            self._last_acc[i] = entry.last_access
+            self._acc_cnt[i] = entry.access_count
+            self._seqs[i] = self._seq + i    # 按插入序赋递增序号
+            self._ids.append(eid)
+            self._row[eid] = i
+            # 条目改为持有矩阵行视图 (单一数据源)
+            entry.key_signal = self._keys[i]
+            entry.value_state = self._vals[i]
+            i += 1
+        self._n = n
+        self._seq += n
+
+    def _move_row(self, src: int, dst: int) -> None:
+        """行搬移 (swap-remove 用), 同步修正条目视图"""
+        self._keys[dst] = self._keys[src]
+        self._vals[dst] = self._vals[src]
+        self._ts[dst] = self._ts[src]
+        self._last_acc[dst] = self._last_acc[src]
+        self._acc_cnt[dst] = self._acc_cnt[src]
+        self._seqs[dst] = self._seqs[src]
+        eid = self._ids[src]
+        self._ids[dst] = eid
+        self._row[eid] = dst
+        entry = self.entries[eid]
+        entry.key_signal = self._keys[dst]
+        entry.value_state = self._vals[dst]
+
+    # ── 公开接口 ──────────────────────────────────────────
+
+    def _coerce_vec(self, vec: np.ndarray) -> np.ndarray:
+        """向量定长化: 不足 dim 补零, 超长截断 (兼容变长载荷, 如 rust 插件)"""
+        v = np.asarray(vec, dtype=float).ravel()
+        if v.shape == (self.dim,):
+            return v
+        out = np.zeros(self.dim)
+        n = min(len(v), self.dim)
+        out[:n] = v[:n]
+        return out
+
+    def push(self, entry_id: str, key_signal: np.ndarray,
              value_state: np.ndarray) -> None:
         """推送新条目到KV堆"""
         with self.lock:
+            self._ensure_sync()
             if len(self.entries) >= self.capacity:
                 self._evict_lru()
-            
-            entry = KVEntry(
-                key_signal=key_signal.copy(),
-                value_state=value_state.copy(),
-                timestamp=time.time(),
-                last_access=time.time()
-            )
-            self.entries[entry_id] = entry
-    
+
+            now = time.time()
+            if entry_id in self._row:
+                # 重复 id: 覆盖原行, 保留插入序 (dict 语义)
+                r = self._row[entry_id]
+                entry = self.entries[entry_id]
+            else:
+                self._grow(self._n + 1)
+                r = self._n
+                self._seq += 1
+                self._ids.append(entry_id)
+                self._row[entry_id] = r
+                entry = KVEntry(
+                    key_signal=np.zeros(self.dim),
+                    value_state=np.zeros(self.dim),
+                    timestamp=now, last_access=now)
+                self.entries[entry_id] = entry
+                self._n += 1
+                self._seqs[r] = self._seq   # 新条目记录插入序 (覆盖旧 id 不刷新)
+            self._keys[r] = self._coerce_vec(key_signal)
+            self._vals[r] = self._coerce_vec(value_state)
+            self._ts[r] = now
+            self._last_acc[r] = now
+            self._acc_cnt[r] = entry.access_count
+            entry.timestamp = now
+            entry.last_access = now
+            # 条目持有矩阵行视图 (单一数据源)
+            entry.key_signal = self._keys[r]
+            entry.value_state = self._vals[r]
+
+    def _score_rows(self, rows: np.ndarray, query_signal: np.ndarray) -> np.ndarray:
+        """向量化打分: |cos(q,k)| × exp(-0.001·Δt), 零范数记 0 分"""
+        q = np.asarray(query_signal, dtype=float)
+        K = self._keys[rows]
+        q_norm = np.linalg.norm(q)
+        k_norms = np.linalg.norm(K, axis=1)
+        denom = q_norm * k_norms
+        valid = denom > 0
+        dots = np.abs(K @ q)
+        sims = np.where(valid, dots / np.where(valid, denom, 1.0), 0.0)
+        decay = np.exp(-0.001 * (time.time() - self._ts[rows]))
+        return sims * decay
+
+    def _top_rows(self, scores: np.ndarray, top_k: int) -> np.ndarray:
+        """分数 top-k 行号 (降序; argpartition + 稳定排序)"""
+        m = len(scores)
+        k = min(top_k, m)
+        if k < m:
+            sel = np.argpartition(-scores, k - 1)[:k]
+        else:
+            sel = np.arange(m)
+        return sel[np.argsort(-scores[sel], kind="stable")]
+
     def query(self, query_signal: np.ndarray, top_k: int = 3) -> List[Tuple[str, np.ndarray, float]]:
         """
-        注意力查询 (query_kv)
+        注意力查询 (query_kv) — 向量化
         """
         # 快速路径: 空堆直接返回
         if not self.entries:
             return []
-        
-        with self.lock:
-            scores = []
-            for entry_id, entry in self.entries.items():
-                score = entry.compute_score(query_signal, self.key_w)
-                scores.append((entry_id, entry, score))
-                entry.access_count += 1
-                entry.last_access = time.time()
-            
-            scores.sort(key=lambda x: x[2], reverse=True)
-            top_entries = scores[:top_k]
-            
-            total_score = sum(s[2] for s in top_entries) + 1e-8
-            
-            results = []
-            for entry_id, entry, score in top_entries:
-                normalized = score / total_score
-                retrieved = entry.value_state * self.value_w * normalized
-                results.append((entry_id, retrieved, normalized))
 
+        with self.lock:
+            self._ensure_sync()
+            n = self._n
+            if n == 0:
+                return []
+            rows = np.arange(n)
+            scores = self._score_rows(rows, query_signal)
+            # 更新全部条目访问统计 (与旧实现语义一致)
+            now = time.time()
+            self._acc_cnt[:n] += 1
+            self._last_acc[:n] = now
+            for r in range(n):
+                entry = self.entries[self._ids[r]]
+                entry.access_count += 1
+                entry.last_access = now
+
+            top = self._top_rows(scores, top_k)
+            total = scores[top].sum() + 1e-8
+            results = []
+            for r in top:
+                normalized = scores[r] / total
+                retrieved = self._vals[r] * self.value_w * normalized
+                results.append((self._ids[r], retrieved, float(normalized)))
             return results
 
     def retrieve(self, query_signal: np.ndarray, top_k: int = 3,
                  scan_limit: int = 4096) -> np.ndarray:
         """
-        主计算路径用的注意力检索: 返回 dim 维聚合检索向量
+        主计算路径用的注意力检索: 返回 dim 维聚合检索向量 (向量化)
 
-        对最近写入的 scan_limit 条记录做相似度打分 (超过限额时丢弃更旧的,
-        dict 保持插入序), 聚合 top_k 条 value 向量后 tanh 归一化。
+        对最近写入的 scan_limit 条记录做相似度打分 (按插入序号 _seqs
+        截取, 淘汰搬移不破坏语义), 聚合 top_k 条 value 向量后 tanh 归一化。
         空堆返回零向量。
         """
         if not self.entries:
             return np.zeros(self.dim)
         with self.lock:
-            items = list(self.entries.items())[-scan_limit:]
-        scores = []
-        for entry_id, entry in items:
-            score = entry.compute_score(query_signal, self.key_w)
-            scores.append((entry_id, entry, score))
-        scores.sort(key=lambda x: x[2], reverse=True)
-        top = scores[:top_k]
-        total = sum(s[2] for s in top) + 1e-8
-        agg = np.zeros(self.dim)
-        for _, entry, score in top:
-            agg += entry.value_state * self.value_w * (score / total)
-        with self.lock:
-            for _, entry, _ in top:
+            self._ensure_sync()
+            n = self._n
+            if n == 0:
+                return np.zeros(self.dim)
+            if n > scan_limit:
+                # 插入序号第 scan_limit 大者为阈值, 只扫最近写入的条目
+                thr = np.partition(self._seqs[:n], n - scan_limit)[n - scan_limit]
+                rows = np.nonzero(self._seqs[:n] >= thr)[0]
+            else:
+                rows = np.arange(n)
+            scores = self._score_rows(rows, query_signal)
+            top_local = self._top_rows(scores, top_k)
+            top_rows = rows[top_local]
+            total = scores[top_local].sum() + 1e-8
+            weights = scores[top_local] / total
+            # agg = Σ value × value_w × w
+            agg = (weights @ self._vals[top_rows]) * self.value_w
+            # 更新 top-k 条目的访问统计 (与旧实现语义一致)
+            now = time.time()
+            self._acc_cnt[top_rows] += 1
+            self._last_acc[top_rows] = now
+            for r in top_rows:
+                entry = self.entries[self._ids[r]]
                 entry.access_count += 1
-                entry.last_access = time.time()
-        return np.tanh(agg)
-    
+                entry.last_access = now
+            return np.tanh(agg)
+
     def _evict_lru(self) -> None:
-        """LRU淘汰最久未访问的条目"""
+        """LRU淘汰最久未访问的条目 (向量化 argmin + swap-remove)"""
         if not self.entries:
             return
-        oldest_id = min(self.entries.keys(), 
-                       key=lambda k: self.entries[k].last_access)
-        del self.entries[oldest_id]
-    
+        r = int(np.argmin(self._last_acc[:self._n]))
+        eid = self._ids[r]
+        del self.entries[eid]
+        del self._row[eid]
+        last = self._n - 1
+        if r != last:
+            self._move_row(last, r)
+        self._ids.pop()
+        self._n -= 1
+
     def clear_expired(self, max_age_days: float = 7.0) -> int:
         """清理过期条目"""
         with self.lock:
+            self._ensure_sync()
+            if self._n == 0 or self._ts is None:
+                return 0
             now = time.time()
             max_age = max_age_days * 86400
-            expired = [k for k, v in self.entries.items() 
-                      if (now - v.timestamp) > max_age]
+            expired = [self._ids[r] for r in np.nonzero(
+                (now - self._ts[:self._n]) > max_age)[0]]
             for k in expired:
                 del self.entries[k]
+            if expired:
+                self._rebuild_index()
             return len(expired)
     
     def get_stats(self) -> Dict:

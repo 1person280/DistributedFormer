@@ -11,9 +11,11 @@ v0.7.2: CuteMamen 插件标准落地 — 通用固定内核 (CuteMamenKernel)
 (必要思考留内核, 其余思考由插件实现)。
 v0.7.3: Rust coding 思考插件 (RustCodingPlugin) — 内嵌 100 段真实
 Rust 语料作训练材料, 填补训练监督脱离实际的空白。
+v0.7.4: KV 堆注意力检索向量化 — 打分与 top-k 全程 numpy 批量计算,
+主计算路径检索提速约 40 倍。
 """
 
-__version__ = "0.7.3"
+__version__ = "0.7.4"
 
 __all__ = [
     "__version__",

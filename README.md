@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.7.3-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.7.4-orange)](CHANGELOG.md)
 
 </div>
 
@@ -481,8 +481,10 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
   **模型精简**为 CubeGPTKernel——必要思考留内核，皮层计算全部由思考插件实现
 - [x] v0.7.3 - **Rust coding 思考插件**：内嵌 100 段真实 Rust 语料作训练材料
   填补训练数据空白（`training_data()` 数据通路），每类原型权重随包往返热加载
+- [x] v0.7.4 - **KV 堆注意力检索向量化**：打分与 top-k 全程 numpy 批量计算
+  （`KVStack` 增量矩阵索引 + swap-remove 淘汰），主计算路径检索提速约 40 倍
+  （4096 条堆 54ms → 1.3ms），行为与旧逐条打分实现数值一致
 - [ ] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路, RustCodingPlugin 导出 X/y）
-- [ ] KV 堆注意力检索向量化（当前 python 循环打分，大堆场景有 scan_limit 限额）
 - [ ] 真实数据集基准（替代纯合成数据），建立有意义的评估基线
 - [ ] Redis 分布式 KV 堆在多节点工作流中实际启用
 - [ ] 学习规则改进：目标是在 ≥2 个真实任务上显著超过随机基线

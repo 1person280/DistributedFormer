@@ -1,5 +1,29 @@
 # 更新日志
 
+## v0.7.4 (2026-09-14)
+
+KV 堆注意力检索向量化：打分与 top-k 全程 numpy 批量计算，消除逐条 Python 循环。
+
+### 性能
+- `KVStack.retrieve()`（主计算路径，每个 FractalLayer / CubeGPT 每步调用）:
+  4096 条堆 54ms → 1.3ms（约 **42×**），20000 条堆（scan_limit 截取）61ms → 1.4ms
+- `query()` 同步向量化（全堆扫描），`_evict_lru` 改 numpy argmin
+
+### 变更 (`distributedformer/core/distributedformer.py`)
+- `KVStack` 内部维护增量矩阵索引（`_keys/_vals/_ts/_seqs` 等，指数扩容，
+  swap-remove 淘汰不产生碎片），条目对象持有矩阵行视图，单一数据源
+- `entries` dict 仍为权威存储，外部直接读取 / `entries.clear()` 完全兼容
+  （长度失配自动重建索引）
+- scan_limit 语义保持：按插入序号（`_seqs`）截取最近写入的 N 条，
+  淘汰搬移与重复 id 覆盖均不破坏插入序
+- push 支持变长载荷（不足 dim 补零 / 超长截断），修复 rust 插件压入
+  10 维 key 的潜在广播错误
+
+### 质量
+- 新增 tests/test_fixes.py 7 项向量化回归（与旧逐条打分参考实现数值等价 /
+  scan_limit 截取 / LRU 淘汰 / 重复 id 覆盖 / 外部 clear 重建 / 存档往返），
+  测试总计 104 项全绿（97 → 104）
+
 ## v0.7.3 (2026-09-14)
 
 Rust coding 思考插件: 内嵌真实语料填补训练材料空白。
