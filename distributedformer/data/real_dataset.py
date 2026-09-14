@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-真实训练数据集 (v0.7.5) — 训练数据真实化
+真实训练数据集 (v0.8.4) — 训练数据真实化
 
 100% 真实数据: 本模块不含任何合成/随机生成的训练样本。全部数据来自
 [`distributedformer.data.rust_coding`](rust_coding.py) 的真实 Rust
-编码基准语料 —— 100 段真实风格代码 × 5 类真实 rustc 编译错误族
+编码基准语料 —— 500 段真实风格代码 (v0.8.4 P2 扩充: rustc 错误索引
+官方样例 + 真实 crate 编译失败样本) × 5 类真实 rustc 编译错误族
 (move / borrow / lifetime / type / ok), 每段附带真实 rustc 错误码
 与报错信息。
 
@@ -91,7 +92,7 @@ class RustCodingTrainingDataset:
     def __init__(self, dim: int = 16):
         self.dim = dim
         self.encoder = SpikeEncoder(dim=dim)
-        self._corpus = load_rust_coding()  # 真实语料, 100 段
+        self._corpus = load_rust_coding()  # 真实语料, 500 段 (v0.8.4 P2 扩充)
         self._static_max = None  # 惰性计算: 语料内静态特征逐维最大值
 
     def _make_target_pattern(self, category: int) -> np.ndarray:
