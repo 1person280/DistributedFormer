@@ -634,17 +634,17 @@ def test_migrate_missing_path_severe_error(tmp_path):
 # ═══════════════════════════════════════════════════════════
 
 def test_rust_plugin_training_material(kernel):
-    """内置 100 段真实 Rust 语料 → 训练材料 + 5 类原型"""
+    """内置 502 段真实 Rust 语料 → 训练材料 + 5 类原型 (v0.8.4 P2 扩充)"""
     from distributedformer.cutemamen import RustCodingPlugin
     plugin = RustCodingPlugin("rust-coding")
     kernel.mount(plugin)
-    assert plugin.corpus_size() == 100
+    assert plugin.corpus_size() == 502
     assert sorted(plugin.prototypes) == ["borrow", "lifetime", "move",
                                          "ok", "type"]
     X, y = plugin.training_data()
-    assert X.shape == (100, 10) and y.shape == (100,)
+    assert X.shape == (502, 10) and y.shape == (502,)
     assert max(y) == 4  # 5 类
-    assert plugin.memory.get("corpus_size") == 100
+    assert plugin.memory.get("corpus_size") == 502
 
 
 def test_rust_plugin_classifies_and_emits(kernel):
@@ -675,6 +675,6 @@ def test_rust_plugin_pkg_roundtrip(tmp_path, kernel):
     loaded, manifest = load_pkg(pkg)
     assert manifest["base_model"] == "rust.coding"
     assert isinstance(loaded, RustCodingPlugin)
-    assert loaded.corpus_size() == 100  # 原型权重随包还原
+    assert loaded.corpus_size() == 502  # 原型权重随包还原 (v0.8.4: 502 段)
     code = "let x: i32 = \"hello\";"
     assert loaded.on_think({"topic": "rust", "data": code}, None)["label"] == "type"

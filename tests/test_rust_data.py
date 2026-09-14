@@ -11,7 +11,7 @@ from distributedformer.training.readout import LinearReadout
 
 def test_dataset_integrity():
     samples = load_rust_coding()
-    assert len(samples) == 100
+    assert len(samples) == 502  # v0.8.4 P2 扩充: 100 → 502
     counts = {}
     for s in samples:
         assert s["code"].strip()
@@ -19,7 +19,7 @@ def test_dataset_integrity():
         assert s["label"] == LABELS.index(s["label_name"])
         assert s["rustc"] and s["msg"]
         counts[s["label"]] = counts.get(s["label"], 0) + 1
-    assert counts == {0: 20, 1: 20, 2: 20, 3: 20, 4: 20}
+    assert counts == {0: 101, 1: 100, 2: 100, 3: 100, 4: 101}
 
 
 def test_real_rustc_error_codes_present():
@@ -71,7 +71,7 @@ def test_real_dataset_static_signal_16d():
 def test_stratified_split():
     samples = load_rust_coding()
     train, val = stratified_split(samples, train_ratio=0.75, seed=0)
-    assert len(train) == 75 and len(val) == 25
+    assert len(train) == 377 and len(val) == 125  # v0.8.4: 502 × 75/25
     assert set(s["label"] for s in val) == set(range(5))
     train_codes = {s["code"] for s in train}
     val_codes = {s["code"] for s in val}
