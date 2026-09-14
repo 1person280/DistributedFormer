@@ -51,7 +51,7 @@ DistributedFormer 探索一条不同于 Transformer 的路线：**用超简单�
 ```bash
 pip install -e .
 # 可选: 真实行情数据源
-pip install -e ".\\\[realtime]"
+pip install -e ".[realtime]"
 ```
 
 依赖极轻：核心只需要 `numpy`。
@@ -76,6 +76,7 @@ dformer test
 
 # 终端聊天: 与 CubeGPT 对话 (v0.7.1)
 dformer chat
+```
 
 作为库使用（v0.3.0 多模态 API）：
 
@@ -89,8 +90,8 @@ gpt = CubeGPT(depth=2, dim=16)   # 深度2 = 281K 参数
 spikes = gpt.step({
     "numeric": 1.5,              # 标量或向量
     "text": "market surges",     # TF-IDF 稀疏编码
-    "timeseries": \\\[1, 2, 4, 3],  # 差分编码
-    "image": gray\\\_image\\\_2d,      # 4×4 池化空间编码
+    "timeseries": [1, 2, 4, 3],  # 差分编码
+    "image": gray_image_2d,      # 4×4 池化空间编码
 })
 ```
 
@@ -163,7 +164,7 @@ kernel.unmount("lora-wq")                          # 卸载自动存档并注册
 kernel.think({"topic": "lora-wq", "data": x})      # 用到时现场热加载
 ```
 
-标准要点（全部已实现，97 项测试覆盖）：
+标准要点（全部已实现，106 项测试覆盖）：
 
 |规范条款|实现|
 |-|-|
@@ -401,20 +402,49 @@ DistributedFormer/
 │   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件
-├── tests/                       # pytest 测试 (104 项)
+├── tests/                       # pytest 测试 (106 项)
 ├── experiments/                 # 消融实验脚本、结果与报告 (E1-E5, R1-R2)
 ├── reports/                     # 历史训练与实验报告
 ├── visualization/               # 训练曲线 / 准确率图
-└── RELEASE\\\_NOTES.md             # Pre0.1 归档版说明
+└── RELEASE_NOTES.md             # Pre0.1 归档版说明
 ```
 
 ## 实验记录（诚实公开）
 
-Pre0.1 归档了全部研发记录，包括**负结果**：在合成 4 分类股票任务上，消融实验
-（[`experiments/ablation\\\_report\\\_extended.md`](experiments/ablation_report_extended.md)）显示
+本项目归档全部研发记录，包括**负结果**。
+
+### Pre0.1：合成数据时代（已归档）
+
+在合成 4 分类股票任务上，消融实验
+（[experiments/ablation_report_extended.md](experiments/ablation_report_extended.md)）显示
 基线准确率 30%、深度 2 大网络 22.5%——**扩大分形规模与思考层监督在该任务上没有正向增益**，
-模型停留在随机水平附近。我们认为如实归档这些结果对这个方向的研究有价值。
-v0.2.0 的工程化重构（可安装包、CLI、测试、部署链路修复）不改变这一结论。
+模型停留在随机水平附近。v0.5.0 修复两个动力学缺陷（均值池化 → 感受野投影；
+恒定调制淹没输入 → 权重配平）后，读出层在合成任务上达 64.8% ± 4.5%
+（5 种子，随机基线 25%）——方法学得到验证；合成任务随即被真实数据取代。
+
+### 真实数据时代（v0.7.5 → v0.8.3）
+
+训练/评估管道 100% 采用真实 Rust 编码基准语料（100 段真实代码 × 5 类
+真实 rustc 错误，随机基线 20%）。准确率轨迹（均为真实数据、5 种子）：
+
+| 版本 | 变更 | 协议 | 验证准确率 |
+|------|------|------|------------|
+| v0.7.5 | 词袋 TF-IDF 编码（诊断基线） | 冻结水库 + 线性读出，75/25 | 36%（28%–44%）|
+| v0.8.0 | P0 双模态注入 | 同上 | 57.6%（52%–64%）|
+| v0.8.1 | P1 结构感知编码 | 同上 | 61.6%（48%–72%）|
+| v0.8.2 | P1 持久输出头（端到端） | 端到端监督训练 | 67.2%（56%–80%，最佳验证）|
+| v0.8.3 | P2 交叉验证评估 | 5 种子 × 5 折分层 CV | **63.8% ± 10.0%**（45%–85%）|
+
+v0.8.3 的 25 次折评估全部超过随机基线；与 v0.8.1 单次划分结论（61.6%）一致，
+**评估不依赖划分运气**。折级明细见
+[experiments/readout_report.md](experiments/readout_report.md)。
+
+**如实报告的负面观察**：
+- 端到端训练（v0.8.2）存在后期漂移：67.2% 为早停选取的最佳验证，
+  最终 epoch 回落至 36%–60%（详见已知问题）
+- 读出层训练准确率恒为 100%（80 样本小语料上的过拟合迹象），训练/验证
+  间隙即泛化间隙；折间方差 ±10% 同样指向小样本——**扩语料
+  （100 → 500+ 段）是下一步最有确定性的方向**
 
 ## 真实数据基准: Rust Coding (v0.6.0)
 
@@ -425,15 +455,15 @@ v0.2.0 的工程化重构（可安装包、CLI、测试、部署链路修复）�
 * **数据**: 100 段真实风格 Rust 代码 × 5 类 (所有权移动 E0382 / 借用冲突
   E0502·E0499 / 生命周期 E0597·E0106 / 类型不匹配 E0308·E0277 / 合法代码),
   每条附真实 rustc 错误码与报错信息, 见
-  [`distributedformer/data/rust\\\_coding.py`](distributedformer/data/rust_coding.py)
+  [`distributedformer/data/rust_coding.py`](distributedformer/data/rust_coding.py)
 * **输入模态**: text (代码原文, 代码感知分词) + numeric (静态扫描特征)
 * **结果**: CubeGPT 读出层 5 种子验证准确率 **57.6% ± 10.3%**, 全部超过
   随机基线 20% (v0.6.0 初版为 54.4% ± 5.4%, 修复 CubeFeatureExtractor
   可复现性后复测提升), 见
-  [`experiments/rust\\\_report.md`](experiments/rust_report.md)
+  [`experiments/rust_report.md`](experiments/rust_report.md)
   * 各类别 (种子均值): 借用冲突 76% / 生命周期 88% / 所有权移动 48% /
     类型不匹配 44% / 合法代码 32%
-* 复现: `python experiments/rust\_\_benchmark.py`
+* 复现: `python experiments/rust_benchmark.py`
 
 ## Rust coding 思考插件 (v0.7.3)
 
@@ -492,6 +522,17 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
   （类间/类内距离比 0.68 负可分），`static_metrics` 语法特征走 numeric
   通路 + 代码原文走 text 通路，真实数据读出层验证 **57.6%**（52%–64%，
   5 种子），超随机基线 2.9 倍
+- [x] v0.8.1 - **P1 结构感知编码**：新增 `structure_metrics` 6 维结构特征
+  （`&mut` / 返回引用 / 类型标注 / println / let / 防御调用），与 10 维
+  `static_metrics` 拼成 16 维填满 numeric 通路，读出层 57.6% → **61.6%**
+  （48%–72%，5 种子）
+- [x] v0.8.2 - **P1 修端到端权重更新**：注入-恢复启发式替换为**持久输出头**
+  （在线 softmax 线性头，权重跨样本/epoch 持久），`w_in` 更新从均值池化
+  改为每单元感受野投影——端到端监督训练从刚至基线（20%）跃升到
+  **67.2%**（56%–80%，5 种子最佳验证）
+- [x] v0.8.3 - **P2 交叉验证评估**：`stratified_kfold` 分层 K 折替代单次
+  75/25 划分，5 种子 × 5 折共 25 次折评估——读出层 **63.8%**（45%–85%，
+  全部 25 折超随机基线），评估不依赖划分运气
 - [ ] 分类式 token：一个 token 占 64 比特数据，纯文本场景下前 32 比特为
   token 组、后 32 比特直接为 utf8-mb4 字符；设硬性分组，如
   `0x00000000xxxxxxxx` 保留为 utf8-mb4 字符 token 组
@@ -530,19 +571,19 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
    全部 25 折超随机基线），与 v0.8.1 单次划分结论（61.6%）一致，
    评估不再依赖划分运气
 
-## 已知问题（v0.7.2 状态）
+## 已知问题（v0.8.3 状态）
 
 * ~~KV 堆注意力未接入主计算路径~~ **已修复（v0.5.0）**：`KVStack.retrieve()` 现为
 FractalLayer / 输入端口 / 输出头的真实注意力来源，记忆影响网络动力学；
-推理时输出状态持续写入 KV 堆，形成闭环。带 scan\_limit 限额防止大堆拖慢。
+推理时输出状态持续写入 KV 堆，形成闭环。带 scan_limit 限额防止大堆拖慢。
 * ~~训练方法学未验证~~ **已验证（v0.5.0，实验 R1）**：修复两个动力学缺陷
 （均值池化 → 感受野投影；恒定调制淹没输入 → 权重配平）后，水库内部状态 +
 线性读出层在合成 4 分类任务上取得 **64.8% ± 4.5%** 验证准确率（5 种子，
 随机基线 25%），全部种子稳定超过基线。见
-[`experiments/readout\\\_report.md`](experiments/readout_report.md)。
+[`experiments/readout_report.md`](experiments/readout_report.md)。
 * ~~桌面通知 / API 调用为模拟~~ **已实现（v0.5.0）**：Windows 真实系统通知
-（PowerShell toast，`DF\\\_NOTIFY\\\_MODE=sim` 可切回打印）；真实 HTTP POST
-（stdlib urllib，endpoint 或 `DF\\\_WEBHOOK\\\_URL` 配置，10s 超时，失败降级不中断）。
+（PowerShell toast，`DF_NOTIFY_MODE=sim` 可切回打印）；真实 HTTP POST
+（stdlib urllib，endpoint 或 `DF_WEBHOOK_URL` 配置，10s 超时，失败降级不中断）。
 * ~~训练监督以合成数据为主~~ **已起步（v0.6.0）**：新增 Rust coding 真实需求
   基准（真实代码 + 真实 rustc 错误类别），读出层 57.6% ± 10.3% vs 随机 20%
   （复测值）；扩展更多真实数据集与真实代码语料仍在路线图中。
