@@ -26,17 +26,24 @@ ACTION_TOPIC = "action.request"
 # ═══════════════════════════════════════════════════════════════
 
 class ToolCallingPlugin(ExpertPlugin):
-    """思考插件: 收到 numeric 事件后, 把候选工具调用发布到执行主题"""
+    """思考插件: 收到 numeric 事件后, 把候选工具调用发布到执行主题
+
+    模拟"内核/插件产生意图"的一侧 —— 它只负责发布候选动作,
+    不知道也不关心动作最终是否被执行 (思考与执行解耦)。
+    """
 
     def on_think(self, event, ctx):
+        # event["data"] 即插件想调用的工具名, 原样作为候选动作载荷
         tool = event["data"]
         ctx.emit(ACTION_TOPIC, {"tool": tool})
+        # 思考结果照常返回 (即使候选被拦截, 思考层也已完成)
         return {"requested": tool}
 
 
 class ExecutionLayer:
     """模拟 Rust 执行层: 只执行通过 SecurityMonitor.gate 的动作
 
+    对应 RFC #1 架构图右侧的执行层, 三种判定对应三种处置:
     - ALLOW → 执行并记录
     - DENY  → 拒绝执行, 记录拦截
     - REVIEW → 不执行, 挂入熔断队列等待审核 (审核通过后由 release 放行)
@@ -44,19 +51,20 @@ class ExecutionLayer:
 
     def __init__(self, monitor: SecurityMonitor):
         self.monitor = monitor
-        self.executed = []
-        self.denied = []
-        self.reviews = []
+        self.executed = []   # 真正执行的工具
+        self.denied = []     # 被 DENY 拦截的工具
+        self.reviews = []    # 被熔断挂起的审核单
 
     def handle(self, bus_event):
+        """事件总线回调: 事件信封 {"topic", "t", "payload"} → gate → 分派"""
         action = bus_event["payload"]
         ok, audited, review = self.monitor.gate(action)
         if ok:
             self.executed.append(action["tool"])
         elif review is not None:
-            self.reviews.append(review)
+            self.reviews.append(review)      # REVIEW: 挂起待审
         else:
-            self.denied.append(action["tool"])
+            self.denied.append(action["tool"])  # DENY: 直接拒绝
 
     def release(self, review) -> bool:
         """审核通过后补放行 (人工/深度审核批准的调用才真正执行)"""
@@ -71,7 +79,9 @@ def build_runtime():
     kernel = CuteMamenKernel(dim=16)
     monitor = SecurityMonitor()
     executor = ExecutionLayer(monitor)
+    # 挂载会发起工具调用的思考插件, 路由到 numeric 主题
     kernel.mount(ToolCallingPlugin("tools", route="numeric"))
+    # 执行层订阅动作主题 —— 这就是"解耦的缝", 监控面插在这条通路上
     kernel.bus.subscribe(ACTION_TOPIC, executor.handle)
     return kernel, monitor, executor
 
@@ -86,9 +96,11 @@ def test_allow_flow_end_to_end():
     kernel, monitor, executor = build_runtime()
     results = kernel.think({"topic": "numeric", "data": "report_generate"})
 
+    # 思考结果与执行结果各就各位
     assert results == [{"requested": "report_generate"}]
     assert executor.executed == ["report_generate"]
     assert executor.denied == [] and executor.reviews == []
+    # 监控统计: 1 次审计, 0 拦截, 0 熔断
     assert monitor.stats() == {"probe": {"inspected": 1, "denied": 0, "history": 1},
                                "breaker": {"tripped": 0, "rejected": 0, "pending": 0}}
 
@@ -114,6 +126,7 @@ def test_review_flow_circuit_break_then_release():
     assert executor.executed == []                      # 确认合规前拒绝下发
     assert len(executor.reviews) == 1
     review = executor.reviews[0]
+    # 审核单保留完整原始动作, 供深度审核 / 人工介入时复盘
     assert review.action == {"tool": "db_write"}
 
     # fail-closed: 无审核者 → 拒绝 → 依然不执行
@@ -137,6 +150,7 @@ def test_review_flow_approved_then_executed():
 def test_mixed_workload_audit_trail():
     """混合负载: 全部候选动作留痕, 只有放行动作真正执行"""
     kernel, monitor, executor = build_runtime()
+    # 负载: 2 放行 + 2 逃逸 + 2 高危
     for tool in ("report_generate", "sudo", "db_write",
                  "report_generate", "port_scan", "set_env"):
         kernel.think({"topic": "numeric", "data": tool})
@@ -161,6 +175,7 @@ def test_monitor_does_not_break_kernel_routing():
     unrouted = []
     kernel.bus.subscribe("kernel.unrouted", lambda e: unrouted.append(e["payload"]))
 
+    # 未知主题: 内核正常走 unrouted 分支, 无候选动作产生
     assert kernel.think({"topic": "unknown", "data": "x"}) == []
     assert unrouted == [{"topic": "unknown"}]
     assert monitor.stats()["probe"]["inspected"] == 0    # 未产生候选动作
@@ -170,6 +185,7 @@ def test_monitor_does_not_break_kernel_routing():
 def test_monitor_survives_multiple_dispatch_cycles():
     """门禁状态跨多次 think 累积 (无状态泄漏 / 无重复计数)"""
     kernel, monitor, executor = build_runtime()
+    # 同一逃逸动作重复 3 次: 每次都被独立拦截并留痕
     for _ in range(3):
         kernel.think({"topic": "numeric", "data": "sudo"})
     assert monitor.probe.total_denied == 3
@@ -185,6 +201,7 @@ def test_wildcard_subscriber_observes_audit_side_effects():
 
     kernel.think({"topic": "numeric", "data": "sudo"})
 
+    # 三类事件对通配订阅者均可见: 候选动作 / 内核广播 / 插件输出
     assert ACTION_TOPIC in seen                          # 候选动作可见
     assert "kernel.think" in seen                        # 内核广播可见
     assert "plugin.tools.output" in seen                 # 插件输出可见
@@ -200,6 +217,7 @@ def test_rust_coding_plugin_unaffected_by_monitor():
     kernel, monitor, executor = build_runtime()
     kernel.mount(RustCodingPlugin("rust-coding"))        # route 默认 "rust"
 
+    # 一段真实生命周期错误代码 → 分类器返回 5 类标签之一
     code = 'fn longest(s1: &str, s2: &str) -> &str { s1 }'
     results = kernel.think({"topic": "rust", "data": code})
 
@@ -214,10 +232,12 @@ def test_rust_plugin_and_tool_plugin_share_one_gate():
     kernel, monitor, executor = build_runtime()
     kernel.mount(RustCodingPlugin("rust-coding"))
 
+    # 一次 rust 分类 (不产生候选) + 两次工具调用 (一次拦截一次放行)
     kernel.think({"topic": "rust", "data": "let x = 5;"})
     kernel.think({"topic": "numeric", "data": "sudo"})
     kernel.think({"topic": "numeric", "data": "report_generate"})
 
     assert executor.denied == ["sudo"]
     assert executor.executed == ["report_generate"]
+    # 只有 tools 候选经过门禁: inspected=2 而非 3
     assert monitor.stats()["probe"] == {"inspected": 2, "denied": 1, "history": 2}
