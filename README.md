@@ -11,7 +11,8 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.3-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.4-orange)](CHANGELOG.md)
+[![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#安全架构宣言--security-architecture-manifesto)
 
 </div>
 
@@ -45,6 +46,49 @@ DistributedFormer 探索一条不同于 Transformer 的路线：**用超简单�
 |**5 类脉冲智能体**|感知 / 推理 / 动作 / 记忆 / 节律，共享全局 KV 堆，脉冲每跳衰减 ×0.7|
 |**节律调制**|120 步周期（80 步思考 + 40 步抑制），模拟昼夜节律的全局兴奋/抑制切换|
 |**STDP 可塑性**|脉冲时序依赖学习（LTP/LTD），与监督信号协同|
+
+## 安全架构宣言 · Security Architecture Manifesto
+
+> **Traditional Transformers are black boxes where intent and action are coupled,
+> making "AI escape" hard to detect. DistributedFormer changes the game by
+> decoupling the CubeGPT core (thinking) from the Rust execution layer. This
+> architecture natively supports a Runtime Security Monitor, allowing us to
+> audit intent before execution.**
+>
+> **传统 Transformer 是黑盒：意图与行动耦合，使"AI 逃逸"难以检测。
+> DistributedFormer 通过解耦 CubeGPT 内核（思考）与 Rust 执行层（行动）改变了
+> 这一局面——这种架构原生支持运行时安全监控，使我们能够在执行之前审计意图。**
+
+**Why DistributedFormer is Safer: Decoupled Intent & Execution allows Real-time Auditing.**
+**为什么 DistributedFormer 更安全：意图与执行解耦，实现实时审计。**
+
+```mermaid
+flowchart LR
+    subgraph THINK["🧠 思考层 Thinking · CubeGPT 内核"]
+        intent["意图生成 Intent<br/>思考状态 / 候选动作<br/>thinking states / candidate actions"]
+    end
+
+    subgraph SHIELD["🛡️ 运行时安全监控 Runtime Security Monitor"]
+        probe["P0 · 意图与决策探针<br/>Intent Probing & Decision Audit"]
+        breaker["P0 · 高危工具调用熔断<br/>Critical Action Circuit Breaker"]
+        fp["P1 · 行为指纹与异常基线<br/>Behavioral Fingerprinting"]
+        trace["P1 · 全链路行为审计<br/>End-to-End Action Tracing"]
+    end
+
+    subgraph EXEC["⚙️ 执行层 Execution · Rust 插件"]
+        action["工具调用 / 动作执行<br/>tool calls / actions"]
+    end
+
+    intent -->|候选动作 candidate action| probe
+    probe -->|放行 allow| action
+    probe -->|拦截 intercept| breaker
+    fp -.基线比对 baseline.-> probe
+    trace -.审计留存 audit log.-> breaker
+```
+
+思考与执行解耦不是 DistributedFormer 的一个附属特性，而是架构层面带来的
+安全红利：意图在进入执行层之前必须经过独立的监控面。四个安全方向按优先级
+推进（详见下方路线图「安全AI」一节），目标里程碑 **v0.9.0 Safety Shield**。
 
 ## 快速开始
 
@@ -413,7 +457,8 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
 ### 安全AI（AI 运行时安全监控模块）
 
 利用思考层（CubeGPT 内核）与执行层（Rust 插件）解耦的架构优势，
-在内核与插件之间建立独立的运行时安全监控面。四个方向按优先级排定：
+在内核与插件之间建立独立的运行时安全监控面（见上方[安全架构宣言](#安全架构宣言--security-architecture-manifesto)）。
+目标里程碑 **v0.9.0 Safety Shield**。四个方向按优先级排定：
 
 1. **P0 · 意图与决策探针（Intent Probing & Decision Audit）**：在模型
    生成下一步行动或工具调用参数之前，实时扫描其"内部决策日志"
