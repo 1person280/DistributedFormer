@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from distributedformer.core.distributedformer import (
+from src.core.distributedformer import (
     DistributedFormer, KVStack, SpikingUnit, calculate_scale
 )
 

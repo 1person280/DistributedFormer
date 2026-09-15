@@ -17,8 +17,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from distributedformer import CubeGPT
-from distributedformer.cutemamen import (
+from src import CubeGPT
+from src.cutemamen import (
     CubeGPTKernel,
     CuteMamenKernel,
     EventBus,
@@ -34,7 +34,7 @@ from distributedformer.cutemamen import (
     read_manifest,
     save_pkg,
 )
-from distributedformer.cutemamen.migrate import main as migrate_main
+from src.cutemamen.migrate import main as migrate_main
 
 
 # ── 测试用插件 ────────────────────────────────────────────
@@ -119,7 +119,7 @@ def test_registry_hot_load(kernel, tmp_path):
 
 
 def test_min_core_version_rejects(tmp_path):
-    from distributedformer.cutemamen import check_core_version
+    from src.cutemamen import check_core_version
     with pytest.raises(ValueError, match="拒绝加载"):
         check_core_version("99.0.0", "0.7.2")
     check_core_version("0.7.0", "0.7.2")  # 不抛
@@ -577,7 +577,7 @@ def test_migrate_single_plugin(tmp_path, capsys):
 
 
 def test_migrate_unmappable_field_exit_codes(tmp_path):
-    from distributedformer.cutemamen.pkg import read_raw_manifest
+    from src.cutemamen.pkg import read_raw_manifest
     # 非严格: 跳过无法映射字段并警告, 退出码 1 (需人工)
     pkg1 = str(tmp_path / "hard1.CuteMamen")
     _make_v1_pkg(pkg1, {"name": "hard", "standard_version": "1.0.3",
@@ -593,7 +593,7 @@ def test_migrate_unmappable_field_exit_codes(tmp_path):
 
 
 def test_migrate_dry_run_no_write(tmp_path):
-    from distributedformer.cutemamen.pkg import read_raw_manifest
+    from src.cutemamen.pkg import read_raw_manifest
     pkg = str(tmp_path / "dr.CuteMamen")
     _make_v1_pkg(pkg, {"name": "dr", "standard_version": "1.0.0",
                        "model_type": "t"})
@@ -635,7 +635,7 @@ def test_migrate_missing_path_severe_error(tmp_path):
 
 def test_rust_plugin_training_material(kernel):
     """内置 502 段真实 Rust 语料 → 训练材料 + 5 类原型 (v0.8.4 P2 扩充)"""
-    from distributedformer.cutemamen import RustCodingPlugin
+    from src.cutemamen import RustCodingPlugin
     plugin = RustCodingPlugin("rust-coding")
     kernel.mount(plugin)
     assert plugin.corpus_size() == 502
@@ -649,7 +649,7 @@ def test_rust_plugin_training_material(kernel):
 
 def test_rust_plugin_classifies_and_emits(kernel):
     """路由 + on_think 分类 + 事件总线广播"""
-    from distributedformer.cutemamen import RustCodingPlugin
+    from src.cutemamen import RustCodingPlugin
     plugin = RustCodingPlugin("rust-coding")
     kernel.mount(plugin)
     seen = []
@@ -668,7 +668,7 @@ def test_rust_plugin_classifies_and_emits(kernel):
 
 def test_rust_plugin_pkg_roundtrip(tmp_path, kernel):
     """原型权重存档 → .CuteMamen → 按 base_model 热加载往返"""
-    from distributedformer.cutemamen import RustCodingPlugin, load_pkg, save_pkg
+    from src.cutemamen import RustCodingPlugin, load_pkg, save_pkg
     plugin = RustCodingPlugin("rust-coding")
     pkg = str(tmp_path / "rust_coding.CuteMamen")
     save_pkg(plugin, pkg)
@@ -678,3 +678,127 @@ def test_rust_plugin_pkg_roundtrip(tmp_path, kernel):
     assert loaded.corpus_size() == 502  # 原型权重随包还原 (v0.8.4: 502 段)
     code = "let x: i32 = \"hello\";"
     assert loaded.on_think({"topic": "rust", "data": code}, None)["label"] == "type"
+
+
+# ═══════════════════════════════════════════════════════════
+# 11. .CuteMamen 插件标准落地: ./plugin 独立思考插件文件 (v0.8.5)
+# ═══════════════════════════════════════════════════════════
+
+_REPO_PLUGIN_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plugin")
+
+
+def test_discover_plugins_dir_standard(kernel, tmp_path):
+    """插件目录标准: 独立包文件 → discover_plugins 注册 → 按路由主题热加载"""
+    from src.cutemamen import RustCodingPlugin, save_pkg
+    save_pkg(RustCodingPlugin("rust-coding"),
+             str(tmp_path / "RustCoding.CuteMamen"))
+    # 同目录无关文件不参与发现
+    (tmp_path / "notes.txt").write_text("not a plugin")
+
+    found = kernel.discover_plugins(str(tmp_path))
+    assert list(found) == ["rust-coding"]
+    assert found["rust-coding"]["base_model"] == "rust.coding"
+    assert kernel.list_plugins() == {"loaded": [],
+                                     "registered": ["rust-coding"]}
+    assert kernel.route_index["rust"] == "rust-coding"
+
+    # 未加载状态直接 think: topic=route ("rust" ≠ 插件名) → 随用随载
+    code = ("fn longest(s1: &str, s2: &str) -> &str {\n"
+            "    if s1.len() > s2.len() { s1 } else { s2 }\n}")
+    out = kernel.think({"topic": "rust", "data": code})
+    assert out and out[0]["label"] == "lifetime"
+    assert "rust-coding" in kernel.plugins
+    assert kernel.list_plugins()["registered"] == []
+
+
+def test_shipped_rust_coding_pkg_routed_by_cubegpt():
+    """CubeGPT 路由到仓库交付的独立思考插件文件 plugin/RustCoding.CuteMamen"""
+    from src.cutemamen import RustCodingPlugin
+    pkg = os.path.join(_REPO_PLUGIN_DIR, "RustCoding.CuteMamen")
+    assert os.path.isfile(pkg), "plugin/RustCoding.CuteMamen 必须独立交付"
+
+    np.random.seed(31)
+    gpt = CubeGPTKernel(depth=1, dim=16, modalities=["numeric"])
+    found = gpt.discover_plugins(_REPO_PLUGIN_DIR)
+    assert found["rust-coding"]["route"] == "rust"
+    assert "rust-coding" not in gpt.plugins  # 注册未加载 (随用随载)
+
+    out = gpt.think({"topic": "rust", "data": "let x: i32 = \"hello\";"})
+    assert out and out[0]["label"] == "type"
+    assert isinstance(gpt.plugins["rust-coding"], RustCodingPlugin)
+    # 内核必要思考不受插件加载影响
+    spikes = gpt.step({"numeric": 1.0})
+    assert isinstance(spikes, list)
+
+
+# ═══════════════════════════════════════════════════════════
+# 12. 新阶段 · 分布式架构: 主模型知识迁移 (v0.9.0)
+# ═══════════════════════════════════════════════════════════
+
+def _small_train_samples(n_per_class: int = 6):
+    """真实语料小子集 (每类 n 段), 供迁移测试快速运行"""
+    from src.data.real_dataset import RustCodingTrainingDataset
+    dataset = RustCodingTrainingDataset(dim=16)
+    train, _ = dataset.generate_dataset(train_ratio=0.98, seed=0)
+    picked, seen = [], {}
+    for s in train:
+        c = s.category
+        if seen.get(c, 0) < n_per_class:
+            picked.append(s)
+            seen[c] = seen.get(c, 0) + 1
+    return picked
+
+
+def test_migrate_from_main_model_priority_and_determinism(kernel):
+    """主模型知识迁移后: 读出层优先于原型, 且同 seed 逐位可复现"""
+    from src.cutemamen import RustCodingPlugin
+    code = "let x: i32 = \"hello\";"
+    plugin = RustCodingPlugin("rust-coding")
+    kernel.mount(plugin)
+    before = kernel.think({"topic": "rust", "data": code})[0]
+    assert before["source"] == "corpus-prototypes"  # 未迁移: 原型回退
+
+    plugin.migrate_from_main_model(_small_train_samples(), seed=0)
+    after = kernel.think({"topic": "rust", "data": code})[0]
+    assert after["source"] == "main-model-readout"
+    assert after["label"] in ("type", "move")  # 该样本真实类别: type
+    assert plugin.memory.recall("knowledge_source") == "main-model-readout"
+
+    # 同 seed 重新迁移 → 推理结果逐位一致 (确定性, v0.9.0 修复验证)
+    plugin2 = RustCodingPlugin("rust-coding")
+    plugin2.migrate_from_main_model(_small_train_samples(), seed=0)
+    again = plugin2.on_think({"topic": "rust", "data": code}, None)
+    assert again["label"] == after["label"]
+    assert abs(again["confidence"] - after["confidence"]) < 1e-12
+
+
+def test_migrated_knowledge_survives_pkg_roundtrip(tmp_path):
+    """迁移知识随 .CuteMamen 存档往返: 读出权重逐位还原, 推理一致"""
+    from src.cutemamen import RustCodingPlugin, load_pkg, save_pkg
+    plugin = RustCodingPlugin("rust-coding")
+    plugin.migrate_from_main_model(_small_train_samples(), seed=0)
+    pkg = str(tmp_path / "RustCoding.CuteMamen")
+    manifest = save_pkg(plugin, pkg)
+    assert manifest["knowledge_source"] == "main-model-readout"
+    assert manifest["readout"]["n_classes"] == 5
+
+    loaded, m2 = load_pkg(pkg)
+    assert m2["knowledge_source"] == "main-model-readout"
+    assert loaded.readout is not None
+    code = "fn longest(s1: &str, s2: &str) -> &str { s1 }"
+    out_src = plugin.on_think({"topic": "rust", "data": code}, None)
+    out_dst = loaded.on_think({"topic": "rust", "data": code}, None)
+    assert out_dst["source"] == "main-model-readout"
+    assert out_dst["label"] == out_src["label"]
+    assert abs(out_dst["confidence"] - out_src["confidence"]) < 1e-12
+    assert loaded.stats()["knowledge_source"] == "main-model-readout"
+
+
+def test_shipped_pkg_carries_migrated_knowledge():
+    """仓库交付的 plugin/RustCoding.CuteMamen 携带主模型迁移知识"""
+    from src.cutemamen import read_manifest
+    m = read_manifest(os.path.join(_REPO_PLUGIN_DIR, "RustCoding.CuteMamen"))
+    assert m["knowledge_source"] == "main-model-readout"
+    assert m["readout"]["n_features"] > 0
+    assert m["corpus_size"] == 502

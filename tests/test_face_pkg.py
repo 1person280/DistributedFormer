@@ -8,9 +8,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from distributedformer import CubeGPT
-from distributedformer.core import face_pkg
-from distributedformer.agents.base_agent import ActionAgent
+from src import CubeGPT
+from src.core import face_pkg
+from src.agents.base_agent import ActionAgent
 
 
 @pytest.fixture

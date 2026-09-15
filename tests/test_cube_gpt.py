@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from distributedformer import CubeGPT
-from distributedformer.core.distributedformer import (
+from src import CubeGPT
+from src.core.distributedformer import (
     CubeFace, calculate_cube_scale
 )
 

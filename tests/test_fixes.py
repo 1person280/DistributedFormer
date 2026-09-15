@@ -3,7 +3,7 @@ import time
 import numpy as np
 import pytest
 
-from distributedformer.core.distributedformer import KVStack, CubeGPT
+from src.core.distributedformer import KVStack, CubeGPT
 
 
 # ── v0.7.4 KV 堆检索向量化: 行为保持回归 ──────────────────────
@@ -167,7 +167,7 @@ def test_attention_changes_state():
 
 def test_api_call_no_endpoint_simulated(monkeypatch):
     monkeypatch.delenv("DF_WEBHOOK_URL", raising=False)
-    from distributedformer.agents.base_agent import ActionAgent
+    from src.agents.base_agent import ActionAgent
     a = ActionAgent("a", df_depth=0)
     r = a._do_api_call({"payload": {}})
     assert r["status"] == "simulated"
@@ -177,7 +177,7 @@ def test_api_call_no_endpoint_simulated(monkeypatch):
 def test_api_call_real_http(monkeypatch):
     """mock urlopen, 验证真实请求路径的封装逻辑"""
     import io as _io
-    from distributedformer.agents import base_agent
+    from src.agents import base_agent
 
     class FakeResp:
         status = 200
@@ -202,7 +202,7 @@ def test_api_call_real_http(monkeypatch):
 
 def test_notification_sim_mode(monkeypatch):
     monkeypatch.setenv("DF_NOTIFY_MODE", "sim")
-    from distributedformer.agents.base_agent import ActionAgent
+    from src.agents.base_agent import ActionAgent
     a = ActionAgent("a", df_depth=0)
     r = a._do_notification({"title": "t", "message": "m"})
     assert r["status"] == "success"

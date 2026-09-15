@@ -9,8 +9,8 @@
 
 import time
 
-from distributedformer.cutemamen import CuteMamenKernel, ExpertPlugin
-from distributedformer.security_monitor import SecurityMonitor, Verdict
+from src.cutemamen import CuteMamenKernel, ExpertPlugin
+from src.security_monitor import SecurityMonitor, Verdict
 from tests.test_security_integration import (
     ACTION_TOPIC, ExecutionLayer, ToolCallingPlugin, build_runtime,
 )

@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-from distributedformer.codec.spike_codec import SpikeEncoder
-from distributedformer.data.rust_coding import (
+from src.codec.spike_codec import SpikeEncoder
+from src.data.rust_coding import (
     LABELS, RUST_SNIPPETS, load_rust_coding, static_metrics,
     structure_metrics, stratified_split
 )
-from distributedformer.training.readout import LinearReadout
+from src.training.readout import LinearReadout
 
 
 def test_dataset_integrity():
@@ -57,7 +57,7 @@ def test_structure_metrics():
 
 
 def test_real_dataset_static_signal_16d():
-    from distributedformer.data.real_dataset import RustCodingTrainingDataset
+    from src.data.real_dataset import RustCodingTrainingDataset
     ds = RustCodingTrainingDataset(dim=16)
     train, val = ds.generate_dataset(train_ratio=0.75, seed=0)
     for s in train[:5]:
@@ -88,7 +88,7 @@ def test_text_encoder_code_aware_and_deterministic():
 
 
 def test_feature_pipeline_and_readout():
-    from distributedformer.training.readout import CubeFeatureExtractor
+    from src.training.readout import CubeFeatureExtractor
     samples = load_rust_coding()[:10]
     ex = CubeFeatureExtractor(depth=1, seed=0)
     F = np.stack([ex.features({

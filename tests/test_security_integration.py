@@ -12,10 +12,10 @@
 
 import pytest
 
-from distributedformer.cutemamen import (
+from src.cutemamen import (
     CuteMamenKernel, ExpertPlugin, RustCodingPlugin,
 )
-from distributedformer.security_monitor import SecurityMonitor, Verdict
+from src.security_monitor import SecurityMonitor, Verdict
 
 # 执行层动作主题: 插件的候选动作发布到这里, 执行层订阅者经 gate 后执行
 ACTION_TOPIC = "action.request"

@@ -1,7 +1,7 @@
-from distributedformer.agents.base_agent import (
+from src.agents.base_agent import (
     PerceptionAgent, ReasoningAgent, ActionAgent, MemoryAgent, RhythmAgent
 )
-from distributedformer.workflow.engine import SpikeWorkflowEngine, WorkflowConfig
+from src.workflow.engine import SpikeWorkflowEngine, WorkflowConfig
 
 
 def _build_engine():
@@ -35,7 +35,7 @@ def test_engine_steps():
 
 
 def test_stock_workflow_smoke():
-    from distributedformer.demos.stock_monitor import StockMonitorWorkflow
+    from src.demos.stock_monitor import StockMonitorWorkflow
     wf = StockMonitorWorkflow(tickers=["AAPL"])
     wf.run_cycle()
     assert wf.engine.get_global_stats()["total_agents"] > 0

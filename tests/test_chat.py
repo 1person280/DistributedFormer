@@ -1,6 +1,6 @@
 """v0.7.1 终端聊天: CubeGPTChat 回合逻辑测试"""
 
-from distributedformer.demos.chat import CubeGPTChat
+from src.demos.chat import CubeGPTChat
 
 
 def test_reply_is_str_with_state_detail():

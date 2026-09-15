@@ -1,6 +1,6 @@
 import numpy as np
 
-from distributedformer.codec.spike_codec import MultiModalCodec
+from src.codec.spike_codec import MultiModalCodec
 
 
 def test_numeric_encode():

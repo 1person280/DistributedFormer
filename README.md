@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # DistributedFormer
 
@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.4-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.6-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#安全架构宣言--security-architecture-manifesto)
 
 </div>
@@ -232,7 +232,7 @@ kernel.think({"topic": "lora-wq", "data": x})      # 用到时现场热加载
 映射字段时报错）/ `--backup`（迁移前备份）。
 
 > **原则：可以往插座上多加孔，但不能把已有的孔堵上。**
-> 完整兼容性规范见 [COMPATIBILITY.md](./COMPATIBILITY.md)。DistributedFormer
+> 完整兼容性规范见 [COMPATIBILITY.md](./docs/COMPATIBILITY.md)。DistributedFormer
 > v0.7.2 即是一个完整参考实现。
 
 ### 模态面内核：CubeGPTKernel (v0.7.2)
@@ -271,13 +271,13 @@ kernel.step({"text": "..."})                     # 再用到时从注册表热�
 ### Docker
 
 ```bash
-cd distributedformer/deployment
+cd src/deployment
 docker compose up -d          # Redis + 2 个监控节点
 docker compose --profile monitoring up -d   # 加 Prometheus
 ```
 
 Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
-[`distributedformer/deployment/k8s/`](distributedformer/deployment/k8s/)。
+[`src/deployment/k8s/`](src/deployment/k8s/)。
 
 ## 实验记录（诚实公开）
 
@@ -285,14 +285,13 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 
 ### 合成数据（v0.0–v0.7.5，已归档）
 
-在合成 4 分类股票任务上，消融实验
-（[experiments/ablation_report_extended.md](experiments/ablation_report_extended.md)）显示
+在合成 4 分类股票任务上，消融实验显示
 基线准确率 30%、深度 2 大网络 22.5%——**扩大分形规模与思考层监督在该任务上没有正向增益**，
 模型停留在随机水平附近。v0.5.0 修复两个动力学缺陷（均值池化 → 感受野投影；
 恒定调制淹没输入 → 权重配平）后，读出层在合成任务上达 64.8% ± 4.5%
 （5 种子，随机基线 25%）——方法学得到验证；合成任务随即被真实数据取代。
 
-### 真实数据（v0.7.5–今，当前 v0.8.4）
+### 真实数据（v0.7.5–今，当前 v0.8.6）
 
 训练/评估管道 100% 采用真实 Rust 编码基准语料（502 段真实代码 × 5 类
 真实 rustc 错误，随机基线 20%）。准确率轨迹（均为真实数据、5 种子）：
@@ -305,6 +304,7 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 | v0.8.2 | P1 持久输出头（端到端） | 端到端监督训练 | 67.2%（56%–80%，最佳验证）|
 | v0.8.3 | P2 交叉验证评估 | 5 种子 × 5 折分层 CV | 63.8% ± 10.0%（45%–85%）|
 | v0.8.4 | P2 扩真实语料 100 → 502 段 | 同上 | **75.6%**（种子均值 74.7%–76.3%，±0.8%）|
+| v0.8.6 | 知识迁移：主模型读出层 → Rust 思考插件（分布式架构） | 5 种子 × 5 折，插件路由推理 | **76.7%**（与主模型直评逐折一致）|
 
 v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出层准确率
 提升 11.8 个百分点，**种子间评估方差从 ±5% 收窄至 ±0.8%**（达到 P2
@@ -330,7 +330,7 @@ v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出
   E0502·E0499 / 生命周期 E0597·E0106 / 类型不匹配 E0308·E0277 / 合法代码;
   v0.8.4 P2 由 100 段扩充, 新增 rustc 错误索引官方样例 + 真实 crate
   编译失败样本), 每条附真实 rustc 错误码与报错信息, 见
-  [`distributedformer/data/rust_coding.py`](distributedformer/data/rust_coding.py)
+  [`src/data/rust_coding.py`](src/data/rust_coding.py)
 * **输入模态**: text (代码原文, 代码感知分词) + numeric (静态扫描特征)
 * **结果**: CubeGPT 读出层 5 种子验证准确率 **57.6% ± 10.3%**, 全部超过
   随机基线 20% (v0.6.0 初版为 54.4% ± 5.4%, 修复 CubeFeatureExtractor
@@ -362,8 +362,8 @@ result = kernel.think({"topic": "rust",
 # [{'label': 'lifetime', 'label_name': '生命周期', 'rustc': 'E0597/E0106/E0515/E0716', 'confidence': ...}]
 
 # 存档 / 随用随载: 原型权重 (每类 static_metrics 质心) 随包往返
-save_pkg(plugin, "cutemamen_pkgs/rust_coding.CuteMamen")
-loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_model=rust.coding
+save_pkg(plugin, "plugin/MyRust.CuteMamen")
+loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
 ```
 
 可学习权重 = 每类别原型特征向量, 经 `.CuteMamen` 包 weights/ 存档还原;
@@ -409,6 +409,13 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
 - [x] v0.8.3 — **P2 交叉验证评估**：`stratified_kfold` 分层 K 折替代单次
   75/25 划分，5 种子 × 5 折共 25 次折评估——读出层 **63.8%**（45%–85%，
   全部 25 折超随机基线），评估不依赖划分运气
+- [x] v0.8.4 — **P2 扩真实语料**：语料 100 → 502 段，读出层 **75.6%**
+  （种子方差 ±0.8%），准确率瓶颈方案收官
+- [x] v0.8.5 — **插件独立交付**：思考插件以 `.CuteMamen` 独立包文件交付
+  `plugin/` 目录，内核按路由主题随用随载热加载
+- [x] v0.8.6 — **新阶段 · 分布式架构**：主模型 Rust 知识迁移到思考插件
+  （`migrate_from_main_model()`，76.7% 与主模型直评逐折一致）；代码扁平化
+  到 `src/`，文档整理到 `docs/`，项目结构清理
 - [ ] 分类式 token：一个 token 占 64 比特数据，纯文本场景下前 32 比特为
   token 组、后 32 比特直接为 utf8-mb4 字符；设硬性分组，如
   `0x00000000xxxxxxxx` 保留为 utf8-mb4 字符 token 组
@@ -504,7 +511,7 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
 * ~~训练报告只有占位符~~ **已修复（v0.7.0）**：`report_generate` 动作现在渲染
   真实统计数据（智能体状态 / CubeGPT 网络统计 / KV 堆记忆 / STDP 学习统计），
   不再产生 `[自动生成内容占位]`。
-* ~~CuteMamen 插件标准只有规范文档~~ **已落地（v0.7.2）**：`distributedformer/cutemamen`
+* ~~CuteMamen 插件标准只有规范文档~~ **已落地（v0.7.2）**：`src/cutemamen`
   包实现内核 / 生命周期钩子 / 三级记忆 / 事件总线 / 内存预算淘汰 / LoRA 桥接 /
   迁移工具，`migrate-v1-to-v2` 命令随包安装。
 * **端到端训练存在后期漂移（v0.8.2）**：在线持久输出头 + 非平稳水库
@@ -517,30 +524,30 @@ loaded, manifest = load_pkg("cutemamen_pkgs/rust_coding.CuteMamen")  # base_mode
 ## 文档
 
 * [架构说明](docs/ARCHITECTURE.md)
-* [更新日志](CHANGELOG.md)
-* [参与贡献](CONTRIBUTING.md)
+* [更新日志](docs/CHANGELOG.md)
+* [参与贡献](docs/CONTRIBUTING.md)
 
 ### 项目结构
 
 ```
 DistributedFormer/
-├── distributedformer/           # Python 包
+├── src/                        # Python 包 (v0.8.6 扁平化)
 │   ├── core/                    # 脉冲单元 / 分形层 / KV 堆 / CubeGPT / 模态面 pkg
-│   ├── cutemamen/               # CuteMamen 插件标准 (v0.7.2): 内核 / 插件 / 事件总线 / 包格式 / LoRA 桥接 / 迁移工具 / Rust coding 插件
+│   ├── cutemamen/               # CuteMamen 插件标准: 内核 / 插件 / 事件总线 / 包格式 / LoRA 桥接 / 迁移工具 / Rust coding 插件
 │   ├── codec/                   # 数值·文本·时序 → 脉冲编码; 脉冲 → 动作解码
 │   ├── agents/                  # 5 类脉冲智能体
 │   ├── workflow/                # 工作流引擎 + 消息路由
-│   ├── data/                    # 真实数据集: Rust 编码基准 + 纯真实训练集 (v0.7.5)
-│   ├── training/                # 监督/STDP 训练器 + 真实数据读出验证 (纯真实数据)
+│   ├── data/                    # 真实数据集: Rust 编码基准 (502 段)
+│   ├── training/                # 监督/STDP 训练器 + 读出层验证协议
 │   ├── deployment/              # Docker / K8s / Redis / Prometheus
+│   ├── security_monitor/        # 运行时安全监控 (意图探针 / 熔断)
 │   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件
-├── tests/                       # pytest 测试 (106 项)
-├── experiments/                 # 消融实验脚本、结果与报告 (E1-E5, R1-R2)
-├── reports/                     # 历史训练与实验报告
-├── visualization/               # 训练曲线 / 准确率图
-└── RELEASE_NOTES.md             # Pre0.1 归档版说明
+├── tests/                       # pytest 测试 (157 项)
+├── experiments/                 # 实验脚本、结果与报告 (读出层验证 / 分布式架构评估)
+├── plugin/                      # .CuteMamen 思考插件独立交付目录
+└── docs/                        # CHANGELOG / 架构 / 兼容性 / 贡献指南 / 发布说明
 ```
 
 ### 开源许可证

@@ -11,7 +11,7 @@
 
 import time
 
-from distributedformer.security_monitor import (
+from src.security_monitor import (
     AuditedAction, CriticalActionCircuitBreaker, IntentProbe,
     RuleBasedSafetyCheck, SafetyCheck, SafetyVerdict, SecurityMonitor,
     Verdict,

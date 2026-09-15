@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "distributedformer"
-version = "0.8.4"
+version = "0.8.6"
 description = "CubeGPT — cube-connected multimodal spiking pulse model (4 faces x ~4.4K units x 16 params ~ 281K), with KV-stack memory and multi-agent pulse workflows"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -32,15 +32,15 @@ viz = ["matplotlib>=3.7", "prometheus-client>=0.19"]
 dev = ["pytest>=7.0", "yfinance>=0.2"]
 
 [project.scripts]
-dformer = "distributedformer.cli:main"
-migrate-v1-to-v2 = "distributedformer.cutemamen.migrate:main"
+dformer = "src.cli:main"
+migrate-v1-to-v2 = "src.cutemamen.migrate:main"
 
 [project.urls]
 Homepage = "https://github.com/1person280/DistributedFormer"
 Documentation = "https://github.com/1person280/DistributedFormer#readme"
 
 [tool.setuptools.packages.find]
-include = ["distributedformer*"]
+include = ["src*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -26,11 +26,11 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from distributedformer.core.distributedformer import CubeGPT
-from distributedformer.data.rust_coding import (
+from src.core.distributedformer import CubeGPT
+from src.data.rust_coding import (
     LABELS, LABEL_NAMES, load_rust_coding, static_metrics, stratified_split
 )
-from distributedformer.training.readout import CubeFeatureExtractor, LinearReadout
+from src.training.readout import CubeFeatureExtractor, LinearReadout
 
 
 def run_benchmark(seed: int, verbose: bool = False) -> dict:
