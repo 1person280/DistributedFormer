@@ -93,9 +93,17 @@ __pycache__ (关闭字节码落地); tests 与 experiments 收进 src/,
 plugin/VideoMaking.CuteMamen — 关键帧 + 镜头运动曲线 → 缓动
 仿射帧序列 + 转场合成, 纯 numpy 零 GPU, 供宿主 (OmniSpace 等)
 作轻量视频生成档位。
+v0.9.1: OpenAI 兼容接口服务器 (落地 · OpenCode 对接) — 纯标准库
+http.server 暴露 /v1/models 与 /v1/chat/completions (含 SSE 流式),
+OpenCode 配置 baseURL 即把 CubeGPT 当编码模型后端; 三级流水线
+(CubeGPT 前置感知 → 真 LLM 生成 → CubeGPT 后置审计), 外挂 LLM 封装为
+标准 CuteMamen 插件 LLMProviderPlugin (base_model=llm.provider), 配置
+本地 OpenAI 兼容后端 (Ollama/llama.cpp) 即可做任意语言代码生成, 未配置
+则回退纯 CubeGPT Rust 知识/脉冲模板 (离线可用); 支持 Bearer API 密钥。
+新增 dformer serve-opencode 子命令。
 """
 
-__version__ = "0.8.7"
+__version__ = "0.9.1"
 
 # ── 仓库内零 __pycache__ (v0.8.7) ────────────────────────────
 # 在导入任何子模块前关闭字节码落地, 使直接运行 (python -m src /

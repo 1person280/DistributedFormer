@@ -40,7 +40,7 @@ EPISODIC_PATH = "memory/episodic.json"
 SEMANTIC_PATH = "memory/semantic.json"
 
 # 内核版本 (min_core_version 检查用); 延迟读包版本避免循环导入
-CORE_VERSION = "0.8.7"
+CORE_VERSION = "0.9.1"
 
 # ── v1 → v2 解码规则 (规范 §2 / COMPATIBILITY.md §4) ──────────
 V1_RENAMED_FIELDS = {"model_type": "base_model"}
@@ -191,6 +191,7 @@ def load_pkg(path: str,
         "cubegpt.face"  → FacePlugin (v0.7.0 .dfpkg 模态面 pkg 的通用化)
         "lora.adapter"  → LoRABridgePlugin
         "video.making"  → VideoMakingPlugin (v0.8.7 轻量视频生成内核)
+        "llm.provider"  → LLMProviderPlugin (v0.9.1 外挂 OpenAI 兼容 LLM)
     .dfpkg 包 (manifest.format == "dfpkg") 自动分流到 FacePlugin。
     """
     # v0.7.0 .dfpkg 特例: 成员结构不同, 走 face_pkg 原生读取
@@ -219,16 +220,18 @@ def load_pkg(path: str,
 
 # 按 base_model 分发的原生插件注册表 (规范 §6 集成路径的宿主侧)
 def native_registry() -> Dict[str, type]:
-    from .face_bridge import FacePlugin
-    from .bridge import LoRABridgePlugin
-    from .rust_coding import RustCodingPlugin
-    from .video_making import VideoMakingPlugin
-    return {
-        "cubegpt.face": FacePlugin,
-        "lora.adapter": LoRABridgePlugin,
-        "rust.coding": RustCodingPlugin,
-        "video.making": VideoMakingPlugin,
-    }
+        from .face_bridge import FacePlugin
+        from .bridge import LoRABridgePlugin
+        from .rust_coding import RustCodingPlugin
+        from .video_making import VideoMakingPlugin
+        from .llm_provider import LLMProviderPlugin
+        return {
+            "cubegpt.face": FacePlugin,
+            "lora.adapter": LoRABridgePlugin,
+            "rust.coding": RustCodingPlugin,
+            "video.making": VideoMakingPlugin,
+            "llm.provider": LLMProviderPlugin,
+        }
 
 
 def _resolve_class(manifest: Dict[str, Any]) -> type:

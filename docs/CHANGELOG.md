@@ -1,5 +1,42 @@
 # 更新日志
 
+## v0.9.1 (2026-09-16)
+
+OpenAI 兼容接口服务器（落地 · OpenCode 对接）：纯标准库 `http.server`
+暴露 `/v1/models` 与 `/v1/chat/completions`（含 SSE 流式），OpenCode
+配置 `baseURL` 即可把 CubeGPT 当编码模型后端。CubeGPT 是脉冲水库、
+无语言生成头，故"生成"如实接地：通用对话走脉冲统计回复，代码 / Rust
+意图路由到 RustCodingPlugin 的 502 段真实语料知识（分类命中哪类编译
+错误 + 给出可编译改法建议与置信度/来源）。新增 `dformer serve-opencode`
+子命令。
+
+### 变更
+- **新增 `src/deployment/openai_server.py`**（纯标准库，零依赖）：
+  - `GET /v1/models` → 返回模型 `cubegpt`
+  - `POST /v1/chat/completions` → OpenAI 报文 (非流式 + SSE 流式)
+  - 三级流水线 (落地): **CubeGPT 前置感知 → 真 LLM 生成 → CubeGPT 后置审计**
+    - 前置感知: 每请求先喂用户文本进水库取脉冲统计
+    - 生成: 外挂 LLM 封装为**标准 CuteMamen 插件 `LLMProviderPlugin`
+      (base_model=`llm.provider`, route=`llm`)** —— 生命周期/三级记忆/
+      权重存档/注册发现/`.CuteMamen` 打包交付全支持, 已注册进
+      `native_registry()`; 配置 `--lm-base` / `CUBEGPT_LM_BASE`
+      (Ollama/llama.cpp) 即转发给真 LLM 做任意语言代码生成; 未配置则
+      回退 CubeGPT 自身 Rust 知识/脉冲模板 (离线可用)
+    - 后置审计: 生成结果再喂水库, 命中 Rust 代码复用 `RustCodingPlugin`
+      真实语料分类并附改法 + 置信度
+  - API 密钥: `Authorization: Bearer <key>`, 默认测试密钥
+    `cubegpt-local-test-key`, `--no-auth` 关闭
+- **`RustCodingPlugin.classify()`**：把 on_think 里的分类逻辑抽成公开
+  方法供服务器等外部调用者复用（原推理路径不变：主模型迁移读出层 →
+  语料原型回退）。
+- **CLI**：新增 `serve-opencode [--host --port --depth --dim --api-key
+  --no-auth --lm-base --lm-key --lm-model]` 子命令。
+- **测试**：新增 `src/tests/test_openai_server.py`（17 项）——OpenAI
+  报文格式、代码意图识别、Rust 帮改法、鉴权(401/200)、三级流水线
+  (假 LLM 后端)、SSE 流式、真实 HTTP 层（models / chat 非流式 + 流式）。
+- 版本 0.8.7 → 0.9.1（pyproject / `__version__` / `pkg.CORE_VERSION` /
+  `min_core_version`）
+
 ## v0.8.7 (2026-09-16)
 
 更整洁的项目 + 轻量视频生成内核插件：运行时产物统一到 `./cache`、

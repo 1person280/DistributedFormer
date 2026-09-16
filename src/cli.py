@@ -2,11 +2,12 @@
 DistributedFormer 命令行入口
 
 子命令:
-  demo      股票监控端到端演示 (模拟数据)
-  serve     长驻监控服务 (容器/生产部署入口, 支持 --realtime 真实行情)
-  train     真实数据训练 (Rust 编码基准)
-  test      运行各模块自检
-  chat      终端聊天: 与 CubeGPT 对话
+  demo          股票监控端到端演示 (模拟数据)
+  serve         长驻监控服务 (容器/生产部署入口, 支持 --realtime 真实行情)
+  serve-opencode 启动 OpenAI 兼容接口服务器, 让 OpenCode 把 CubeGPT 当模型后端
+  train         真实数据训练 (Rust 编码基准)
+  test          运行各模块自检
+  chat          终端聊天: 与 CubeGPT 对话
 """
 
 import argparse
@@ -75,6 +76,16 @@ def cmd_serve(args):
         print(f"\n[serve] 已停止, 共运行 {cycle} 个周期")
 
 
+def cmd_serve_opencode(args):
+    """OpenAI 兼容接口服务器 — 让 OpenCode 把 CubeGPT 当编码模型后端"""
+    from src.deployment.openai_server import run_openai_server
+    run_openai_server(host=args.host, port=args.port,
+                      depth=args.depth, dim=args.dim,
+                      api_key=None if args.no_auth else args.api_key,
+                      lm_base=args.lm_base, lm_key=args.lm_key,
+                      lm_model=args.lm_model)
+
+
 def cmd_train(args):
     from src.data.real_dataset import RustCodingTrainingDataset
     from src.training.trainer import DFTrainer
@@ -123,6 +134,32 @@ def build_parser():
     p_serve.add_argument("--realtime", action="store_true", help="使用 yfinance 真实行情")
     p_serve.add_argument("--output-dir", default=".")
     p_serve.set_defaults(func=cmd_serve)
+
+    p_opencode = sub.add_parser(
+        "serve-opencode",
+        help="启动 OpenAI 兼容接口服务器 (让 OpenCode 把 CubeGPT 当模型后端)")
+    p_opencode.add_argument("--host", default="127.0.0.1")
+    p_opencode.add_argument("--port", type=int, default=8000)
+    p_opencode.add_argument("--depth", type=int, default=2, choices=[0, 1, 2])
+    p_opencode.add_argument("--dim", type=int, default=16)
+    p_opencode.add_argument(
+        "--api-key", default=None,
+        help=f"API 密钥 (请求头 Authorization: Bearer <key>; 默认 "
+             f"cubegpt-local-test-key)")
+    p_opencode.add_argument(
+        "--no-auth", action="store_true",
+        help="关闭 API 密钥校验 (仅推荐纯本地/无外网环境)")
+    p_opencode.add_argument(
+        "--lm-base", default=None,
+        help="本地 OpenAI 兼容生成后端 baseURL (如 http://127.0.0.1:11434/"
+             "v1); 缺省读环境变量 CUBEGPT_LM_BASE")
+    p_opencode.add_argument(
+        "--lm-key", default=None,
+        help="后端 Bearer key (Ollama 默认为 ollama); 缺省读 CUBEGPT_LM_KEY")
+    p_opencode.add_argument(
+        "--lm-model", default=None,
+        help="后端模型名 (如 qwen2.5-coder:7b); 缺省读 CUBEGPT_LM_MODEL")
+    p_opencode.set_defaults(func=cmd_serve_opencode)
 
     p_train = sub.add_parser("train", help="真实数据训练 (Rust 编码基准)")
     p_train.add_argument("--depth", type=int, default=1, choices=[0, 1, 2])

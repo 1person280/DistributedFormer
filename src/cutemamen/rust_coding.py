@@ -1,4 +1,4 @@
-﻿"""RustCodingPlugin: Rust coding 思考插件 (填补训练材料空白)
+"""RustCodingPlugin: Rust coding 思考插件 (填补训练材料空白)
 
 v0.8.6 起插件携带**主模型迁移知识** (新阶段 · 分布式架构):
 
@@ -177,6 +177,30 @@ class RustCodingPlugin(ExpertPlugin):
         self.memory.set("labels", LABELS)
         super().on_load(ctx)
 
+    def classify(self, code: str) -> Dict[str, Any]:
+        """公开分类入口: 一段 Rust 代码 → 命中哪一类编译错误
+
+        推理路径: 主模型迁移读出层 (有迁移权重时) → 语料原型回退。
+        返回 {"label","label_name","rustc","confidence","source"}。
+        """
+        self._ensure_corpus()
+        f = static_metrics(code)  # 语法特征 (工作记忆写入用)
+        if self.readout is not None:
+            # 新阶段 · 分布式架构: 主模型迁移知识推理
+            label, confidence = self._classify_readout(code)
+        elif self.prototypes:
+            probs = _classify(f, self.prototypes)
+            label = LABELS[int(np.argmax(probs))]
+            confidence = float(probs[np.argmax(probs)])
+        else:
+            return {"label": "ok", "label_name": "合法代码 (可编译)",
+                    "rustc": "-", "confidence": 0.0, "needs_corpus": True,
+                    "source": "none"}
+        return {"label": label, "label_name": _label_name(label),
+                "rustc": _rustc_for(label), "confidence": confidence,
+                "source": "main-model-readout" if self.readout
+                else "corpus-prototypes"}
+
     def on_think(self, event: Dict[str, Any],
                  ctx: PluginContext) -> Optional[Dict[str, Any]]:
         """分类一段 Rust 代码 → 5 类编译错误之一
@@ -189,16 +213,12 @@ class RustCodingPlugin(ExpertPlugin):
             return None
         self._ensure_corpus()
         f = static_metrics(code)  # 语法特征 (工作记忆写入用)
-        if self.readout is not None:
-            # 新阶段 · 分布式架构: 主模型迁移知识推理
-            label, confidence = self._classify_readout(code)
-        elif self.prototypes:
-            probs = _classify(f, self.prototypes)
-            label = LABELS[int(np.argmax(probs))]
-            confidence = float(probs[np.argmax(probs)])
-        else:
+        cls = self.classify(code)
+        if cls.get("needs_corpus"):
             return {"label": "ok", "label_name": "合法代码 (可编译)",
                     "rustc": "-", "confidence": 0.0, "needs_corpus": True}
+        label = cls["label"]
+        confidence = cls["confidence"]
         # 触发一次工作记忆写入 + 事件总线广播 (插件间通信)
         if ctx is not None:
             ctx.working_memory.push(
@@ -207,12 +227,10 @@ class RustCodingPlugin(ExpertPlugin):
             ctx.emit("rust.classified",
                      {"label": label, "confidence": confidence,
                       "code_len": len(code),
-                      "source": "main-model-readout" if self.readout
-                      else "corpus-prototypes"})
+                      "source": cls["source"]})
         return {"label": label, "label_name": _label_name(label),
                 "rustc": _rustc_for(label), "confidence": confidence,
-                "source": "main-model-readout" if self.readout
-                else "corpus-prototypes"}
+                "source": cls["source"]}
 
     def on_unload(self) -> None:
         self.memory.consolidate()
