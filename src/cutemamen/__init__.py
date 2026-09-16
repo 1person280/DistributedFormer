@@ -23,6 +23,7 @@ from .pkg import (
 from .bridge import LoRAAdapter, LoRABridgePlugin, apply_lora, lora_from_weight
 from .face_bridge import FacePlugin
 from .rust_coding import RustCodingPlugin
+from .video_making import VideoMakingPlugin
 from .kernel import CubeGPTKernel, CuteMamenKernel, WorkingMemory
 from .migrate import main as migrate_main
 
@@ -43,6 +44,7 @@ __all__ = [
     "lora_from_weight",
     "FacePlugin",
     "RustCodingPlugin",
+    "VideoMakingPlugin",
     "CubeGPTKernel",
     "CuteMamenKernel",
     "WorkingMemory",

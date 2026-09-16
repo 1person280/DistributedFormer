@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # DistributedFormer
 
@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.6-orange)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.7-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#安全架构宣言--security-architecture-manifesto)
 
 </div>
@@ -156,11 +156,11 @@ gpt = CubeGPT(depth=1, dim=16, modalities=["numeric", "text"])
 gpt.export_face("text", "text.dfpkg", author="me", capability="文本语义计算")
 
 # 卸载: 自动先导出 pkg 再从内存移除 (可随时恢复)
-gpt.unload_face("text")                    # 默认存到 face_pkgs/text.dfpkg
+gpt.unload_face("text")                    # 默认存到 cache/face_pkgs/text.dfpkg
 gpt.list_faces()                           # {'loaded': ['numeric'], 'registered': ['text']}
 
 # 随用随载: 注册后不占内存, step() 用到该模态时现场热加载
-gpt.register_face_pkg("face_pkgs/text.dfpkg")
+gpt.register_face_pkg("cache/face_pkgs/text.dfpkg")
 spikes = gpt.step({"text": "hello"})       # 触发热加载, 之后常驻
 
 # 或显式加载 / 导入到另一个模型
@@ -416,6 +416,10 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
 - [x] v0.8.6 — **新阶段 · 分布式架构**：主模型 Rust 知识迁移到思考插件
   （`migrate_from_main_model()`，76.7% 与主模型直评逐折一致）；代码扁平化
   到 `src/`，文档整理到 `docs/`，项目结构清理
+- [x] v0.8.7 — **更整洁的项目**：运行时缓存统一到 `./cache`（插件/面
+  自动存档 + pytest 缓存 + Python 字节码缓存集中一处）；清理废弃路径与
+  一次性临时文件；新增 `plugin/VideoMaking.CuteMamen` 轻量视频生成插件
+  （关键帧 + 镜头运动曲线 → 缓动仿射帧序列，纯 numpy 零 GPU）
 - [ ] 分类式 token：一个 token 占 64 比特数据，纯文本场景下前 32 比特为
   token 组、后 32 比特直接为 utf8-mb4 字符；设硬性分组，如
   `0x00000000xxxxxxxx` 保留为 utf8-mb4 字符 token 组
@@ -547,6 +551,7 @@ DistributedFormer/
 ├── tests/                       # pytest 测试 (157 项)
 ├── experiments/                 # 实验脚本、结果与报告 (读出层验证 / 分布式架构评估)
 ├── plugin/                      # .CuteMamen 思考插件独立交付目录
+├── cache/                       # 统一运行时缓存 (插件/面存档 + pytest + Python 字节码, git 忽略)
 └── docs/                        # CHANGELOG / 架构 / 兼容性 / 贡献指南 / 发布说明
 ```
 

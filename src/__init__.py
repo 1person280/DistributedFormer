@@ -86,9 +86,29 @@ v0.8.6: 新阶段 · 分布式架构 — 主模型 Rust 知识迁移到思考插
 (76.7%, 与主模型直评逐折一致); 修复 reset_state 不重置融合输入
 与皮层布线未 seed Python random 两处不可复现问题; 代码扁平化
 到 src/ 顶层包, 文档整理到 docs/。
+v0.8.7: 更整洁的项目 + 轻量视频生成内核插件 — 运行时缓存统一到
+./cache (解码/卸载/淘汰自动存档 + pytest 缓存 + Python 字节码缓存
+集中一处, src/ 不再散落 __pycache__); 清理上个版本废弃路径与
+一次性临时脚本; 新增 plugin/VideoMaking.CuteMamen — 关键帧 +
+镜头运动曲线 → 缓动仿射帧序列 + 转场合成, 纯 numpy 零 GPU,
+供宿主 (OmniSpace 等) 作轻量视频生成档位。
 """
 
-__version__ = "0.8.6"
+__version__ = "0.8.7"
+
+# ── Python 字节码缓存统一 (v0.8.7) ──────────────────────────
+# 在导入任何子模块前设置 sys.pycache_prefix, 使 src/ 各子包的
+# __pycache__ 统一写入根目录 ./cache/pycache, 不再散落各子目录。
+# (pytest 场景由根 conftest.py 提前设置; 仅本文件自身的 .pyc
+# 仍写 src/__pycache__, 可用环境变量 PYTHONPYCACHEPREFIX 消除)
+import os as _os
+import sys as _sys
+
+if _sys.pycache_prefix is None:
+    _sys.pycache_prefix = _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+        "cache", "pycache")
+    _os.makedirs(_sys.pycache_prefix, exist_ok=True)
 
 __all__ = [
     "__version__",

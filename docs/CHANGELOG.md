@@ -1,5 +1,40 @@
 # 更新日志
 
+## v0.8.7 (2026-09-16)
+
+更整洁的项目 + 轻量视频生成内核插件：运行时缓存统一到 `./cache`，
+清理上个版本废弃路径与一次性临时文件，新增视频生成思考插件。
+
+### 变更
+- **统一运行时缓存根目录 `./cache`**（精简项目）：
+  - 插件卸载/淘汰自动存档：根目录 `cutemamen_pkgs/` →
+    `cache/cutemamen_pkgs`（`src/cutemamen/kernel.py` `CACHE_DIR`）
+  - 模态面卸载自动存档：根目录 `face_pkgs/` → `cache/face_pkgs`
+    （`kernel.py` 与 `core/distributedformer.py` 两处）
+  - pytest 缓存：`.pytest_cache/` → `cache/pytest`
+    （`pyproject.toml` `cache_dir`）
+  - Python 字节码缓存：根 `conftest.py`（pytest 场景）与
+    `src/__init__.py` 导入期（直接运行场景）设置
+    `sys.pycache_prefix`，src/ 子包与 tests/ 的 `__pycache__`
+    统一写入 `cache/pycache`（含 stdlib 镜像，可再生）；完全消除
+    亦可用环境变量 `PYTHONPYCACHEPREFIX=cache/pycache`
+  - `.gitignore` 以单条 `cache/` 覆盖全部运行时缓存
+- **清理上个版本废弃路径与临时文件**：
+  - 删除 `experiments/` 中 18 个未跟踪一次性临时脚本/文本
+    （`fix_*.py` / `backend_*.txt` / `merge_msg.txt` 等，
+    仅保留 8 个真实实验脚本与结果）
+  - 删除根目录 `cutemamen_pkgs/` 与 src/tests 下 11 个分散
+    `__pycache__/`
+  - 修复 `dformer --version` 废弃导入路径
+    （`distributedformer` → `src`）
+  - 卸载残留的 `distributedformer 0.7.2` 旧版 editable 安装
+    （finder 仍映射到已删除的 `distributedformer/` 旧目录树）
+  - README 示例与目录树同步到 `cache/` 新路径
+- **轻量视频生成内核插件** `plugin/VideoMaking.CuteMamen`
+  （`src/cutemamen/video_making.py`）：关键帧 + 镜头运动曲线 →
+  缓动仿射帧序列 + 转场合成，纯 numpy 零 GPU，供宿主
+  （OmniSpace 等）作轻量视频生成档位
+
 ## v0.8.6 (2026-09-15)
 
 新阶段 · 分布式架构 + 更整洁的项目结构：主模型 Rust 知识迁移到

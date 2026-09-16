@@ -40,7 +40,7 @@ EPISODIC_PATH = "memory/episodic.json"
 SEMANTIC_PATH = "memory/semantic.json"
 
 # 内核版本 (min_core_version 检查用); 延迟读包版本避免循环导入
-CORE_VERSION = "0.8.6"
+CORE_VERSION = "0.8.7"
 
 # ── v1 → v2 解码规则 (规范 §2 / COMPATIBILITY.md §4) ──────────
 V1_RENAMED_FIELDS = {"model_type": "base_model"}
@@ -190,6 +190,7 @@ def load_pkg(path: str,
     plugin_cls=None 时按 manifest.base_model 从注册表分发:
         "cubegpt.face"  → FacePlugin (v0.7.0 .dfpkg 模态面 pkg 的通用化)
         "lora.adapter"  → LoRABridgePlugin
+        "video.making"  → VideoMakingPlugin (v0.8.7 轻量视频生成内核)
     .dfpkg 包 (manifest.format == "dfpkg") 自动分流到 FacePlugin。
     """
     # v0.7.0 .dfpkg 特例: 成员结构不同, 走 face_pkg 原生读取
@@ -221,10 +222,12 @@ def native_registry() -> Dict[str, type]:
     from .face_bridge import FacePlugin
     from .bridge import LoRABridgePlugin
     from .rust_coding import RustCodingPlugin
+    from .video_making import VideoMakingPlugin
     return {
         "cubegpt.face": FacePlugin,
         "lora.adapter": LoRABridgePlugin,
         "rust.coding": RustCodingPlugin,
+        "video.making": VideoMakingPlugin,
     }
 
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 DistributedFormer: 分布式脉冲神经网络核心
 基于 Kimi Work × DistributedFormer 原型方案实现
 
@@ -1363,7 +1363,7 @@ class CubeGPT:
         from . import face_pkg
         if pkg_path is None:
             pkg_path = os.path.join(
-                "face_pkgs", f"{modality}{face_pkg.DFPKG_SUFFIX}")
+                "cache", "face_pkgs", f"{modality}{face_pkg.DFPKG_SUFFIX}")
         face_pkg.export_face(self, modality, pkg_path)
         del self.faces[modality]
         self._rebuild_ring()

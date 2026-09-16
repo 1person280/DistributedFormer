@@ -28,8 +28,12 @@ import numpy as np
 from .event_bus import EventBus
 from .plugin import ExpertPlugin, PluginContext
 
-# 默认插件存档目录 (卸载/淘汰时自动存档)
-DEFAULT_PKG_DIR = "cutemamen_pkgs"
+# 运行时缓存统一根目录 (v0.8.7 精简): 所有解码/卸载/淘汰产生的临时
+# 存档与缓存统一放在 ./cache 下, 不再在仓库根目录散落零散文件夹
+CACHE_DIR = "cache"
+
+# 默认插件存档目录 (卸载/淘汰时自动存档), 位于统一缓存根下
+DEFAULT_PKG_DIR = os.path.join(CACHE_DIR, "cutemamen_pkgs")
 
 # .CuteMamen 插件标准落地目录 (v0.8.5): 思考插件以独立包文件形式
 # 放在 ./plugin/<Name>.CuteMamen, 内核 discover_plugins() 扫描注册,
@@ -459,8 +463,9 @@ class CubeGPTKernel(CuteMamenKernel):
                            f"{list(self.faces)}, 已注册: "
                            f"{sorted(self._face_registry)})")
         if pkg_path is None:
-            os.makedirs("face_pkgs", exist_ok=True)
-            pkg_path = os.path.join("face_pkgs", f"{modality}.dfpkg")
+            pkg_dir = os.path.join(CACHE_DIR, "face_pkgs")
+            os.makedirs(pkg_dir, exist_ok=True)
+            pkg_path = os.path.join(pkg_dir, f"{modality}.dfpkg")
         # v0.7.0 兼容: 面卸载默认存 .dfpkg (经典格式)
         from ..core import face_pkg
         face_pkg.export_face(self, modality, pkg_path)

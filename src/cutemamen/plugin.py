@@ -284,7 +284,7 @@ class ExpertPlugin:
             "route": self.route,
             "lifecycle": ["on_load", "on_think", "on_unload"],
             "memory_budget": int(self.memory.footprint_bytes()),
-            "min_core_version": "0.8.6",
+            "min_core_version": "0.8.7",
             "memory_levels": list(PluginMemory.LEVELS),
             "core_version": CORE_VERSION,
             "format": "CuteMamen",

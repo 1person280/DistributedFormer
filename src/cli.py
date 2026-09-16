@@ -107,7 +107,7 @@ def build_parser():
         prog="distributedformer",
         description="DistributedFormer — 事件驱动脉冲神经网络智能体框架",
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__import__('distributedformer').__version__}")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__import__('src').__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_demo = sub.add_parser("demo", help="股票监控端到端演示 (模拟数据)")
