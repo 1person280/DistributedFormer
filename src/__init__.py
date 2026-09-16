@@ -101,9 +101,12 @@ OpenCode 配置 baseURL 即把 CubeGPT 当编码模型后端; 三级流水线
 本地 OpenAI 兼容后端 (Ollama/llama.cpp) 即可做任意语言代码生成, 未配置
 则回退纯 CubeGPT Rust 知识/脉冲模板 (离线可用); 支持 Bearer API 密钥。
 新增 dformer serve-opencode 子命令。
+v0.9.2: 安全AI P1 落地 — Safety Shield 四方向齐全 (意图探针/熔断 P0,
+行为指纹与异常基线检测/全链路行为审计与溯源 P1); gate() 接入行为指纹
+判定与四元组审计存储, stats() 并入 fingerprint/tracer 统计。
 """
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 # ── 仓库内零 __pycache__ (v0.8.7) ────────────────────────────
 # 在导入任何子模块前关闭字节码落地, 使直接运行 (python -m src /

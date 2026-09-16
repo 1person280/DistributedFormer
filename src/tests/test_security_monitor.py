@@ -1,18 +1,22 @@
-"""运行时安全监控骨架单元测试 (RFC #1 / v0.9.0 Safety Shield)
+"""运行时安全监控单元测试 (RFC #1 / v0.9.2 Safety Shield)
 
-测试对象: distributedformer/security_monitor 包的四个组件
+测试对象: distributedformer/security_monitor 包的六个组件
     - RuleBasedSafetyCheck  规则版安全判定器 (P0 最小实现)
     - IntentProbe           意图探针 (P0)
     - CriticalActionCircuitBreaker  高危熔断器 (P0)
+    - BehavioralFingerprint 行为指纹与异常基线检测 (P1)
+    - ActionTracer          全链路行为审计与溯源 (P1)
     - SecurityMonitor       组合监控面 (执行层前唯一门禁)
 
-覆盖: 三态判定 / 规则注入 / 历史容量 / fail-closed / 组合门禁与统计一致性
+覆盖: 三态判定 / 规则注入 / 历史容量 / fail-closed / 组合门禁与统计一致性 /
+      频率-熵值-链路关联异常判定 / 四元组绑定存储与溯源复盘
 """
 
 import time
 
 from src.security_monitor import (
-    AuditedAction, CriticalActionCircuitBreaker, IntentProbe,
+    ActionTrace, ActionTracer, AuditedAction, BehavioralFingerprint,
+    CriticalActionCircuitBreaker, FingerprintResult, IntentProbe,
     RuleBasedSafetyCheck, SafetyCheck, SafetyVerdict, SecurityMonitor,
     Verdict,
 )
@@ -267,3 +271,185 @@ def test_security_monitor_injects_shared_checker():
         assert monitor.gate({"tool": tool})[0] is True
     # 全放行 → 熔断器从未被触发
     assert monitor.stats()["breaker"]["tripped"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════
+# BehavioralFingerprint — 行为指纹与异常基线检测 (P1)
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_fingerprint_clean_business_action():
+    """正常业务动作: 无异常标志, 指标输出齐全"""
+    fp = BehavioralFingerprint()
+    r = fp.check({"tool": "report_generate"})
+    assert isinstance(r, FingerprintResult)
+    assert not r.anomalous and r.flags == []
+    assert r.metrics["window_count"] == 0
+    assert r.metrics["entropy"] > 0
+
+
+def test_fingerprint_frequency_burst():
+    """频率突发: 窗内同一工具调用次数超过硬上限 → 判异常"""
+    fp = BehavioralFingerprint(freq_limit=3)
+    for i in range(5):  # 同一时刻 5 次 -> 窗内计数 5 > 3
+        fp.observe({"tool": "port_scan"}, at=100.0)
+    r = fp.check({"tool": "port_scan"}, at=100.5)
+    assert r.anomalous and "frequency-burst" in r.flags
+
+
+def test_fingerprint_baseline_deviation():
+    """基线偏离: 无硬上限时按基线速率 × 偏离系数判定异常"""
+    fp = BehavioralFingerprint(window=10.0, freq_limit=None, deviation_factor=3.0)
+    # 校准: db_read 每个窗 30 次被视为正常 → 基线速率 3.0, 偏离上限 9
+    fp.learn([{"tool": "db_read"}] * 30)
+    # 实时: 与当前任务无关地每窗冲了 15 次 → 15 > 9 判异常
+    for i in range(15):
+        fp.observe({"tool": "db_read"}, at=200.0)
+    r = fp.check({"tool": "db_read"}, at=200.5)
+    assert r.anomalous and "frequency-burst" in r.flags
+    assert r.metrics["baseline_rate"] == 3.0
+    assert r.metrics["freq_limit"] == 9.0
+
+
+def test_fingerprint_high_entropy_params():
+    """参数熵值异常: 高随机性载荷 (扫描式枚举) 判异常"""
+    fp = BehavioralFingerprint(entropy_threshold=4.0)
+    probe = {"tool": "call", "params": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z"}
+    r = fp.check(probe)
+    assert r.anomalous and "high-entropy-params" in r.flags
+    # 对比: 自然短文本不触发
+    ok = fp.check({"tool": "report_generate"})
+    assert not ok.anomalous
+
+
+def test_fingerprint_unrelated_low_level_with_task():
+    """链路逻辑关联: 有任务上下文时, 任务外底层系统指令判异常"""
+    fp = BehavioralFingerprint(task_tools={"report": {"report_generate", "read_file"}})
+    r = fp.check({"tool": "chmod"}, task="report")
+    assert r.anomalous and "unrelated-low-level" in r.flags
+    # 属于任务白名单 → 正常
+    ok = fp.check({"tool": "report_generate"}, task="report")
+    assert not ok.anomalous
+
+
+def test_fingerprint_unrelated_low_level_without_task():
+    """无任务上下文时底层系统指令保守告警, 空工具不告警"""
+    fp = BehavioralFingerprint()
+    assert fp.check({"tool": "kill"}).anomalous
+    assert not fp.check({"tool": "report_generate"}).anomalous
+    assert not fp.check({}).anomalous  # 空动作静默放行
+
+
+def test_fingerprint_reset_and_stats():
+    """reset 清空基线/窗口/统计, stats 反映当前状态"""
+    fp = BehavioralFingerprint()
+    fp.learn([{"tool": "x"}] * 5)
+    fp.check({"tool": "chmod"})  # 无任务 → 异常 +1
+    assert fp.stats()["checks"] == 1 and fp.stats()["anomalies"] == 1
+    assert fp.stats()["baseline_tools"] == 1
+    fp.reset()
+    assert fp.stats() == {"checks": 0, "anomalies": 0, "baseline_tools": 0, "window_size": 0}
+
+
+# ═══════════════════════════════════════════════════════════════
+# ActionTracer — 全链路行为审计与溯源 (P1)
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_tracer_record_returns_id_and_binds_tuple():
+    """record 生成 action_id, 四元组绑定存储; replay 原样还原"""
+    tracer = ActionTracer(id_factory=lambda: "act-1")
+    aid = tracer.record(
+        thinking_state={"step": "decide db_write"},
+        decision_basis={"verdict": "review", "reasons": ["高危"]},
+        tool_params={"tool": "db_write"},
+        execution_result={"allowed": False, "outcome": "REVIEW"},
+    )
+    assert aid == "act-1"
+    snap = tracer.replay("act-1")
+    assert snap["thinking_state"] == {"step": "decide db_write"}
+    assert snap["decision_basis"]["verdict"] == "review"
+    assert snap["tool_params"]["tool"] == "db_write"
+    assert snap["execution_result"]["outcome"] == "REVIEW"
+
+
+def test_tracer_query_multidim_filters():
+    """多维回溯: 按 action_id / tool / tag / outcome / risk_tag AND 过滤"""
+    tracer = ActionTracer()
+    tracer.record(decision_basis={"verdict": "review", "risk_tags": ["access-core-database"]},
+                  tool_params={"tool": "db_write"},
+                  execution_result={"outcome": "REVIEW"}, tags=["high-risk"])
+    tracer.record(decision_basis={"verdict": "allow", "risk_tags": []},
+                  tool_params={"tool": "report_generate"},
+                  execution_result={"outcome": "ALLOW"})
+    assert len(tracer.query(tool="db_write")) == 1
+    assert len(tracer.query(outcome="ALLOW")) == 1
+    assert len(tracer.query(tag="high-risk")) == 1
+    assert len(tracer.query(risk_tag="access-core-database")) == 1
+    # 组合 AND: 工具 + 结果均命中才返回
+    assert len(tracer.query(tool="report_generate", outcome="ALLOW")) == 1
+    assert len(tracer.query(tool="report_generate", outcome="REVIEW")) == 0
+    assert tracer.replay("missing") == {}
+
+
+def test_tracer_capacity_evicts_oldest():
+    """超出容量按 FIFO 淘汰最旧记录, 溯源只返回现存记录"""
+    tracer = ActionTracer(capacity=2)
+    ids = [tracer.record(tool_params={"tool": f"t{i}"}) for i in range(3)]
+    assert len(tracer.traces) == 2
+    assert tracer.replay(ids[0]) == {}        # 最旧已被淘汰
+    assert tracer.replay(ids[2])["tool_params"]["tool"] == "t2"
+
+
+def test_tracer_export_and_stats():
+    """export 输出全量结构化审计日志, stats 反映容量利用"""
+    tracer = ActionTracer()
+    tracer.record(tool_params={"tool": "a"}, tags=["x"])
+    tracer.record(tool_params={"tool": "b"})
+    exported = tracer.export()
+    assert len(exported) == 2
+    assert {et["tool_params"]["tool"] for et in exported} == {"a", "b"}
+    assert "execution_result" in exported[0] and "thinking_state" in exported[0]
+    assert tracer.stats() == {"traces": 2, "capacity": 512}
+    assert len(list(tracer.iter_traces())) == 2
+
+
+# ═══════════════════════════════════════════════════════════════
+# SecurityMonitor — P1 集成 (行为指纹 + 全链路审计)
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_security_monitor_wont_trip_fingerprint_on_normal():
+    """正常业务动作经 gate() 不触发行为指纹异常, 且回填基线"""
+    monitor = SecurityMonitor()
+    ok, _, _ = monitor.gate({"tool": "report_generate"})
+    assert ok
+    assert not monitor.last_fingerprint.anomalous
+    # 基线已学习 report_generate, 指纹统计被计入组合统计
+    assert monitor.stats()["fingerprint"]["checks"] == 1
+
+
+def test_security_monitor_traces_every_gate():
+    """每条 gate 动作都写入全链路审计 (含决策依据与执行结果)"""
+    monitor = SecurityMonitor()
+    monitor.gate({"tool": "sudo"}, thinking_state={"step": "obtain root"})
+    assert monitor.stats()["tracer"]["traces"] == 1
+    snap = monitor.tracer.replay(monitor.tracer.traces[0].action_id)
+    # 四元组: 思考状态 / 决策依据 / 工具参数 / 执行结果
+    assert snap["thinking_state"] == {"step": "obtain root"}
+    assert snap["decision_basis"]["verdict"] == "deny"
+    assert snap["tool_params"]["tool"] == "sudo"
+    assert snap["execution_result"]["outcome"] == "DENY"
+
+
+def test_security_monitor_combines_p1_in_stats():
+    """组合统计 = 探针 + 熔断 + 指纹 + 审计的直和"""
+    monitor = SecurityMonitor()
+    monitor.gate({"tool": "report_generate"})   # ALLOW
+    monitor.gate({"tool": "db_write"})          # REVIEW(熔断)
+    monitor.gate({"tool": "sudo"})              # DENY
+    stats = monitor.stats()
+    assert stats["probe"]["inspected"] == 3 and stats["probe"]["denied"] == 1
+    assert stats["breaker"]["tripped"] == 1
+    assert stats["fingerprint"]["checks"] == 3
+    assert stats["tracer"]["traces"] == 3

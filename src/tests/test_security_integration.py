@@ -100,9 +100,14 @@ def test_allow_flow_end_to_end():
     assert results == [{"requested": "report_generate"}]
     assert executor.executed == ["report_generate"]
     assert executor.denied == [] and executor.reviews == []
-    # 监控统计: 1 次审计, 0 拦截, 0 熔断
-    assert monitor.stats() == {"probe": {"inspected": 1, "denied": 0, "history": 1},
-                               "breaker": {"tripped": 0, "rejected": 0, "pending": 0}}
+    # 监控统计: 1 次审计, 0 拦截, 0 熔断 (含 P1 指纹/审计统计)
+    assert monitor.stats() == {
+        "probe": {"inspected": 1, "denied": 0, "history": 1},
+        "breaker": {"tripped": 0, "rejected": 0, "pending": 0},
+        "fingerprint": {"checks": 1, "anomalies": 0, "baseline_tools": 0,
+                        "window_size": 1},
+        "tracer": {"traces": 1, "capacity": 512},
+    }
 
 
 def test_deny_flow_blocks_execution():

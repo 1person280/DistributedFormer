@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.1-orange)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.2-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#安全架构宣言--security-architecture-manifesto)
 
 </div>
@@ -469,27 +469,28 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
 
 利用思考层（CubeGPT 内核）与执行层（Rust 插件）解耦的架构优势，
 在内核与插件之间建立独立的运行时安全监控面（见上方[安全架构宣言](#安全架构宣言--security-architecture-manifesto)）。
-目标里程碑 **v0.9.0 Safety Shield**。四个方向按优先级排定：
+目标里程碑 **v0.9.0 Safety Shield**。四个方向按优先级排定，**已全部落地（v0.9.2）**：
 
-1. **P0 · 意图与决策探针（Intent Probing & Decision Audit）**：在模型
+1. **P0 · 意图与决策探针（Intent Probing & Decision Audit）** ✅ **已完成（v0.9.0）**：在模型
    生成下一步行动或工具调用参数之前，实时扫描其"内部决策日志"
    （思考状态 / 事件总线上的候选动作）；内置轻量级安全分类器判断
    当前决策是否包含越权、获取高权限指令或探索系统边界等逃逸倾向，
-   命中即在下发前拦截
-2. **P0 · 高危工具调用熔断机制（Critical Action Circuit Breaker）**：
+   命中即在下发前拦截（`src/security_monitor/intent_probe.py`）
+2. **P0 · 高危工具调用熔断机制（Critical Action Circuit Breaker）** ✅ **已完成（v0.9.0）**：
    建立动态的工具调用权限围栏——对高风险操作（修改系统配置、访问
    核心数据库、下载未白名单外部代码等）不直接交由 Rust 执行层执行；
    系统拦截该调用，触发异步或同步深度安全审核（可升级为人工介入），
-   确认合规前拒绝下发
+   确认合规前拒绝下发（`src/security_monitor/circuit_breaker.py`）
 3. **P1 · 行为指纹与异常基线检测（Behavioral Fingerprinting &
-   Baseline Deviation）**：记录模型在正常业务下的标准行为模式建立
-   "安全基线"；实时监控调用频率、参数熵值及请求链路的逻辑关联性，
-   对大规模并发试探、非逻辑的端口扫描式调用、与当前任务无关的底层
-   系统指令等逃逸行为立即告警并判定异常
-4. **P1 · 全链路行为审计与溯源（End-to-End Action Tracing）**：对
+   Baseline Deviation）** ✅ **已完成（v0.9.2）**：`observe/learn` 在正常业务
+   流量上累积每工具频率基线；实时监控调用频率（窗内突发/基线偏离）、
+   参数熵值（扫描式枚举载荷）及请求链路的逻辑关联性（任务外底层系统
+   指令），命中即判定异常并告警（`src/security_monitor/behavioral_fingerprint.py`）
+4. **P1 · 全链路行为审计与溯源（End-to-End Action Tracing）** ✅ **已完成（v0.9.2）**：对
    "产生想法 → 执行动作"全流程结构化日志留存——思考状态、决策依据、
-   工具参数、执行结果四元组绑定存储；安全事件发生时支持完整复盘
-   溯源，满足强监管行业的合规审计需求
+   工具参数、执行结果四元组绑定存储（全局 action_id 主键）；`replay/query/export`
+   支持安全事件完整复盘溯源，满足强监管行业的合规审计需求
+   （`src/security_monitor/action_tracer.py`）
 
 ### 已知问题（v0.8.4 状态）
 
@@ -544,9 +545,9 @@ DistributedFormer/
 │   ├── data/                    # 真实数据集: Rust 编码基准 (502 段)
 │   ├── training/                # 监督/STDP 训练器 + 读出层验证协议
 │   ├── deployment/              # Docker / K8s / Redis / Prometheus
-│   ├── security_monitor/        # 运行时安全监控 (意图探针 / 熔断)
+│   ├── security_monitor/        # 运行时安全监控 (意图探针 / 熔断 / 行为指纹 / 审计溯源)
 │   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
-│   ├── tests/                   # pytest 测试 (157 项)
+│   ├── tests/                   # pytest 测试 (191 项)
 │   ├── experiments/             # 实验脚本、结果与报告 (读出层验证 / 分布式架构评估)
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件

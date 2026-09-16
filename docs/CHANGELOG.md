@@ -1,5 +1,32 @@
 # 更新日志
 
+## v0.9.2 (2026-09-16)
+
+安全AI（AI 运行时安全监控模块）P1 落地 —— Safety Shield 四个方向全部完成。
+
+### 新增
+- **`src/security_monitor/behavioral_fingerprint.py`**（P1 行为指纹与异常基线检测）：
+  - `observe/learn` 在正常业务流量上累积每工具频率基线（速率 = 次数/时间窗）
+  - `check()` 实时三路判定：
+    - `frequency-burst`：窗内同工具调用次数超硬上限或基线速率 × 偏离系数
+    - `high-entropy-params`：载荷 Shannon 熵超阈值（端口扫描式枚举调用）
+    - `unrelated-low-level`：任务白名单外的底层系统指令（无任务上下文时保守告警）
+  - `FingerprintResult` 返回 anomalous/flags/metrics 供审计留痕
+- **`src/security_monitor/action_tracer.py`**（P1 全链路行为审计与溯源）：
+  - 思考状态 / 决策依据 / 工具参数 / 执行结果四元组绑定存储，全局 `action_id` 主键
+  - `replay(id)` 溯源复盘单条链路；`query()` 多维 AND 过滤回溯；
+    `export()/iter_traces()` 结构化日志导出（强监管合规审计）
+- **`SecurityMonitor` 接入 P1**：`gate()` 现并跑行为指纹判定、ALLOW 回填基线、
+  每条动作写入全链路审计（决策依据含指纹指标）；`stats()` 新增
+  `fingerprint` / `tracer` 统计组
+
+### 测试与版本
+- `test_security_monitor.py` 由 15 → 36 项（新增 21 项 P1 单测）；
+  `test_security_integration.py` 统计断言随新 stats 结构更新；
+  全量测试 191 项通过
+- 版本 0.9.1 → 0.9.2（pyproject / `__version__` / `CORE_VERSION` /
+  `min_core_version`），README 安全AI 四方向全部标记 ✅ 已完成
+
 ## v0.9.1 (2026-09-16)
 
 OpenAI 兼容接口服务器（落地 · OpenCode 对接）：纯标准库 `http.server`
