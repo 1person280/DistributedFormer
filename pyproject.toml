@@ -41,7 +41,8 @@ Documentation = "https://github.com/1person280/DistributedFormer#readme"
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+exclude = ["src.tests*", "src.experiments*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["src/tests"]
 cache_dir = "cache/pytest"

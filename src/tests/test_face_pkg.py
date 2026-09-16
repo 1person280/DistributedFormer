@@ -6,7 +6,9 @@ import sys
 import numpy as np
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# src/tests/<file> → 上溯 3 级到仓库根 (导入 src 包)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
 
 from src import CubeGPT
 from src.core import face_pkg

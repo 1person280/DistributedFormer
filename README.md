@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # DistributedFormer
 
@@ -310,7 +310,7 @@ v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出
 提升 11.8 个百分点，**种子间评估方差从 ±5% 收窄至 ±0.8%**（达到 P2
 的 ±2% 目标），折级 ±3.9% 为每折 ~100 验证样本的二项统计下限
 （p=0.75 时抽样噪声 ~±4.3%），属统计噪声而非方法不稳定。折级明细见
-[experiments/readout_report.md](experiments/readout_report.md)。
+[src/experiments/readout_report.md](src/experiments/readout_report.md)。
 
 **如实报告的负面观察**：
 - 端到端训练（v0.8.2）存在后期漂移：67.2% 为早停选取的最佳验证，
@@ -335,10 +335,10 @@ v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出
 * **结果**: CubeGPT 读出层 5 种子验证准确率 **57.6% ± 10.3%**, 全部超过
   随机基线 20% (v0.6.0 初版为 54.4% ± 5.4%, 修复 CubeFeatureExtractor
   可复现性后复测提升), 见
-  [`experiments/rust_report.md`](experiments/rust_report.md)
+  [`src/experiments/rust_report.md`](src/experiments/rust_report.md)
   * 各类别 (种子均值): 借用冲突 76% / 生命周期 88% / 所有权移动 48% /
     类型不匹配 44% / 合法代码 32%
-* 复现: `python experiments/rust_benchmark.py`
+* 复现: `python src/experiments/rust_benchmark.py`
 
 ### RustCoding 思考插件 (v0.7.3)
 
@@ -500,7 +500,7 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
   （均值池化 → 感受野投影；恒定调制淹没输入 → 权重配平）后，水库内部状态 +
   线性读出层在合成 4 分类任务上取得 **64.8% ± 4.5%** 验证准确率（5 种子，
   随机基线 25%），全部种子稳定超过基线。见
-  [`experiments/readout_report.md`](experiments/readout_report.md)。
+  [`src/experiments/readout_report.md`](src/experiments/readout_report.md)。
 * ~~桌面通知 / API 调用为模拟~~ **已实现（v0.5.0）**：Windows 真实系统通知
   （PowerShell toast，`DF_NOTIFY_MODE=sim` 可切回打印）；真实 HTTP POST
   （stdlib urllib，endpoint 或 `DF_WEBHOOK_URL` 配置，10s 超时，失败降级不中断）。
@@ -546,12 +546,12 @@ DistributedFormer/
 │   ├── deployment/              # Docker / K8s / Redis / Prometheus
 │   ├── security_monitor/        # 运行时安全监控 (意图探针 / 熔断)
 │   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
+│   ├── tests/                   # pytest 测试 (157 项)
+│   ├── experiments/             # 实验脚本、结果与报告 (读出层验证 / 分布式架构评估)
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件
-├── tests/                       # pytest 测试 (157 项)
-├── experiments/                 # 实验脚本、结果与报告 (读出层验证 / 分布式架构评估)
 ├── plugin/                      # .CuteMamen 思考插件独立交付目录
-├── cache/                       # 统一运行时缓存 (插件/面存档 + pytest + Python 字节码, git 忽略)
+├── cache/                       # 统一运行时缓存 (插件/面存档 + pytest, git 忽略)
 └── docs/                        # CHANGELOG / 架构 / 兼容性 / 贡献指南 / 发布说明
 ```
 

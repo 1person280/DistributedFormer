@@ -14,8 +14,8 @@
   2. w_global≈0.5 恒定调制淹没输入路径 → 调制权重配平 (0.1)
   3. 特征读取位置: 从 16 维输出模式 → 水库内部状态 (N 维)
 
-运行: python experiments/readout_validation.py
-输出: experiments/readout_results.json, experiments/readout_report.md
+运行: python src/experiments/readout_validation.py
+输出: src/experiments/readout_results.json, src/experiments/readout_report.md
 """
 
 import json
@@ -25,7 +25,9 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# src/experiments/<file> → 上溯 3 级到仓库根 (导入 src 包)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
 
 from src.training.readout import run_cross_validation
 

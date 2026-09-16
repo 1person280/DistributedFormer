@@ -2,7 +2,8 @@
 
 ## v0.8.7 (2026-09-16)
 
-更整洁的项目 + 轻量视频生成内核插件：运行时缓存统一到 `./cache`，
+更整洁的项目 + 轻量视频生成内核插件：运行时产物统一到 `./cache`、
+仓库内零 `__pycache__`、tests 与 experiments 收进 `src/`，
 清理上个版本废弃路径与一次性临时文件，新增视频生成思考插件。
 
 ### 变更
@@ -13,23 +14,31 @@
     （`kernel.py` 与 `core/distributedformer.py` 两处）
   - pytest 缓存：`.pytest_cache/` → `cache/pytest`
     （`pyproject.toml` `cache_dir`）
-  - Python 字节码缓存：根 `conftest.py`（pytest 场景）与
-    `src/__init__.py` 导入期（直接运行场景）设置
-    `sys.pycache_prefix`，src/ 子包与 tests/ 的 `__pycache__`
-    统一写入 `cache/pycache`（含 stdlib 镜像，可再生）；完全消除
-    亦可用环境变量 `PYTHONPYCACHEPREFIX=cache/pycache`
   - `.gitignore` 以单条 `cache/` 覆盖全部运行时缓存
+- **仓库内零 `__pycache__`**：
+  - 曾用 `sys.pycache_prefix` 统一到 `cache/pycache`，但该机制按
+    源文件绝对路径镜像目录树（层级又长又深）且会把 stdlib 一起
+    复制进仓库缓存，故弃用并删除 `cache/pycache`
+  - 改为根 `conftest.py`（pytest 场景）与 `src/__init__.py`
+    （直接运行场景）设置 `sys.dont_write_bytecode`，仓库内任何
+    位置（含根目录与 `src/`）不再生成 `__pycache__`；
+    conftest 自身的 .pyc 由 atexit 清理
+  - 如需字节码缓存，运行前设 `PYTHONPYCACHEPREFIX` 指向仓库外目录
+- **目录结构收拢**：`tests/` → `src/tests/`、`experiments/` →
+  `src/experiments/`（仓库根只剩 `src/` / `plugin/` / `docs/` /
+  `cache/` / `conftest.py` 等必要条目）；两子包补带架构注释的
+  `__init__.py`；测试/实验脚本路径引导上溯 3 级到仓库根；
+  `pyproject.toml` `testpaths` 同步，打包排除 tests/experiments
 - **清理上个版本废弃路径与临时文件**：
   - 删除 `experiments/` 中 18 个未跟踪一次性临时脚本/文本
     （`fix_*.py` / `backend_*.txt` / `merge_msg.txt` 等，
     仅保留 8 个真实实验脚本与结果）
-  - 删除根目录 `cutemamen_pkgs/` 与 src/tests 下 11 个分散
-    `__pycache__/`
+  - 删除根目录 `cutemamen_pkgs/` 与全部散落 `__pycache__/`
   - 修复 `dformer --version` 废弃导入路径
     （`distributedformer` → `src`）
   - 卸载残留的 `distributedformer 0.7.2` 旧版 editable 安装
     （finder 仍映射到已删除的 `distributedformer/` 旧目录树）
-  - README 示例与目录树同步到 `cache/` 新路径
+  - README 示例与目录树同步到新布局
 - **轻量视频生成内核插件** `plugin/VideoMaking.CuteMamen`
   （`src/cutemamen/video_making.py`）：关键帧 + 镜头运动曲线 →
   缓动仿射帧序列 + 转场合成，纯 numpy 零 GPU，供宿主

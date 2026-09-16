@@ -20,7 +20,9 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# src/experiments/<file> → 上溯 3 级到仓库根 (导入 src 包)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
 
 from src.cutemamen import CuteMamenKernel, RustCodingPlugin
 from src.data.real_dataset import RustCodingTrainingDataset

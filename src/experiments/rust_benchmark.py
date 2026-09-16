@@ -13,8 +13,8 @@
 模型: CubeGPT (深度1, numeric+text 双面) 冻结作特征提取器,
 水库状态 + 线性 softmax 读出层 (与实验 R1 相同的已验证范式)。
 
-运行: python experiments/rust_benchmark.py
-输出: experiments/rust_results.json, experiments/rust_report.md
+运行: python src/experiments/rust_benchmark.py
+输出: src/experiments/rust_results.json, src/experiments/rust_report.md
 """
 
 import json
@@ -24,7 +24,9 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# src/experiments/<file> → 上溯 3 级到仓库根 (导入 src 包)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
 
 from src.core.distributedformer import CubeGPT
 from src.data.rust_coding import (

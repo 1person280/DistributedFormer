@@ -15,7 +15,9 @@ import tarfile
 import numpy as np
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# src/tests/<file> → 上溯 3 级到仓库根 (导入 src 包)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
 
 from src import CubeGPT
 from src.cutemamen import (
@@ -684,8 +686,8 @@ def test_rust_plugin_pkg_roundtrip(tmp_path, kernel):
 # 11. .CuteMamen 插件标准落地: ./plugin 独立思考插件文件 (v0.8.5)
 # ═══════════════════════════════════════════════════════════
 
-_REPO_PLUGIN_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plugin")
+_REPO_PLUGIN_DIR = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))), "plugin")
 
 
 def test_discover_plugins_dir_standard(kernel, tmp_path):
