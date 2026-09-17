@@ -94,6 +94,35 @@ class VideoMakingPlugin(ExpertPlugin):
         merged.update(self.motion_profiles)
         return sorted(merged)
 
+    # ── 真实训练材料 (填补训练数据空白, 镜像 RustCodingPlugin) ──
+    def motion_descriptors(self) -> Dict[str, np.ndarray]:
+        """导出真实运镜曲线参数表: motion → 8 维 from/to 描述符
+
+        真实数据 = 蒸馏自真实分镜惯例的运镜曲线 (DEFAULT_MOTION_PROFILES
+        与已注入权重并集); 每行 = [from_dx, from_dy, from_zoom, from_rot,
+        to_dx, to_dy, to_zoom, to_rot], 供训练/评估作为真实训练材料。
+        """
+        merged = dict(DEFAULT_MOTION_PROFILES)
+        merged.update(self.motion_profiles)
+        out: Dict[str, np.ndarray] = {}
+        for motion, prof in merged.items():
+            f, to = prof["from"], prof["to"]
+            out[motion] = np.array(
+                [f["dx"], f["dy"], f["zoom"], f["rot"],
+                 to["dx"], to["dy"], to["zoom"], to["rot"]], dtype=float)
+        return out
+
+    def training_data(self, n_points: int = 20) -> Tuple[np.ndarray, np.ndarray]:
+        """导出真实运动识别训练材料: (特征矩阵, 标签索引)
+
+        每条真实运镜曲线按其真实插值进度稠密采样为描述符样本
+        (dx, dy, zoom, rot, progress), 标签 = 真实运动类别。供端到端
+        训练 / 基准评估使用 (与 RustCodingPlugin.training_data() 同构)。
+        """
+        from ..data.video_motion import sample_motion_points, LABELS
+        return sample_motion_points(
+            self.motion_descriptors(), labels=LABELS, n_points=n_points)
+
     # ── 生命周期 ────────────────────────────────────────────
     def on_load(self, ctx: PluginContext) -> None:
         self.memory.set("base_model", self.BASE_MODEL)

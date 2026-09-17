@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.11.0-orange)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.12.0-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#安全架构宣言--security-architecture-manifesto)
 
 </div>
@@ -139,6 +139,12 @@ dformer train --dataset md --depth 0 --epochs 10    # Markdown, 端到端 token 
 
 # 多任务真实基准: Rust + Markdown, 5 种子 × 5 折 (实验 R3, v0.11.0)
 dformer benchmark-multi
+
+# 全面训练: 三真实任务统一基准并汇总 (Rust/Markdown/视频, v0.12.0)
+dformer benchmark-all
+
+# Web 图形界面: 本地浏览器控制台 (内核/插件/思考/基准, v0.12.0)
+dformer ui --port 8001
 
 # 模块自检
 dformer test
@@ -314,12 +320,16 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 恒定调制淹没输入 → 权重配平）后，读出层在合成任务上达 64.8% ± 4.5%
 （5 种子，随机基线 25%）——方法学得到验证；合成任务随即被真实数据取代。
 
-### 真实数据（v0.7.5–今，当前 v0.11.0）
+### 真实数据（v0.7.5–今，当前 v0.12.0）
 
 训练/评估管道 100% 采用真实 Rust 编码基准语料（502 段真实代码 × 5 类
 真实 rustc 错误，随机基线 20%）+ 第二真实任务（Markdown 内容类型，
-仓库真实多字节文档，5 类，随机基线 20%）。准确率轨迹（均为真实数据、
-5 种子的 Rust 任务）：
+仓库真实多字节文档，5 类，随机基线 20%）+ 视频生成训练（真实运镜曲线，
+10 类，随机基线 10%）。准确率轨迹按**评估载体**分为两张表——**主模型
+直评**（冻结 CubeGPT 水库 + 线性读出层）与**思考插件推理**（知识迁移 /
+插件内训练后经 CuteMamen 插件路由推理）：
+
+**表 1 · 主模型直评**（均为真实数据、5 种子，Rust 任务）：
 
 | 版本 | 变更 | 协议 | 验证准确率 |
 |------|------|------|------------|
@@ -329,10 +339,16 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 | v0.8.2 | P1 持久输出头（端到端） | 端到端监督训练 | 67.2%（56%–80%，最佳验证）|
 | v0.8.3 | P2 交叉验证评估 | 5 种子 × 5 折分层 CV | 63.8% ± 10.0%（45%–85%）|
 | v0.8.4 | P2 扩真实语料 100 → 502 段 | 同上 | **75.6%**（种子均值 74.7%–76.3%，±0.8%）|
-| v0.8.6 | 知识迁移：主模型读出层 → Rust 思考插件（分布式架构） | 5 种子 × 5 折，插件路由推理 | **76.7%**（与主模型直评逐折一致）|
 | v0.10.1 | 基准同步 502 段 5 折 CV + 读出层 L2 选优 | 5 种子 × 5 折分层 CV | **76.7%**（种子均值 75.1%–79.1%，25 折全超基线，L2=1e-3）|
 | v0.10.2 | 端到端后期漂移修复（LR 调度/水库冻结） | 端到端监督训练 12 epoch | 见下方复评 |
 | v0.11.0 | **多任务真实基准（实验 R3）+ 端到端可学习** | 5 种子 × 5 折分层 CV × 2 任务 | **Rust 76.7% / Markdown 57.7%** |
+
+**表 2 · 思考插件推理**（真实数据经 CuteMamen 插件训练/迁移后路由推理）：
+
+| 版本 | 插件 | 训练材料 | 协议 | 验证准确率 |
+|------|------|----------|------|------------|
+| v0.8.6 | **RustCodingPlugin**（主模型知识迁移） | 502 段真实 Rust | 5 种子 × 5 折，插件路由推理 | **76.7%**（与主模型直评逐折一致）|
+| v0.12.0 | **VideoMakingPlugin**（插件内训练，实验 R4） | 真实运镜曲线 × 10 类 | 5 种子 × 5 折分层 CV | **61.7%** ± 9.8%（25/25 折超随机 10%）|
 
 v0.11.0 多任务结果（5 种子 × 5 折，实验 R3，见
 [`src/experiments/multi_task_report.md`](src/experiments/multi_task_report.md)）：
@@ -372,11 +388,12 @@ v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出
 
 ## 训练材料
 
-### Rust coding 真实基准 (v0.6.0)
+### Rust coding 真实基准 + 思考插件 (v0.6.0 / v0.7.3)
 
 针对"训练监督以合成数据为主、知识脱离实际"的限制, 新增首个真实需求基准:
 **静态识别 Rust 代码命中的编译错误类别**——lints / IDE 提示 / 自动修复工具
-的基础能力。
+的基础能力。该真实语料既作为基准数据集, 也内嵌进 CuteMamen 思考插件
+(`RustCodingPlugin`) 作可调用的训练/评估材料, 内核无需额外数据源。
 
 * **数据**: 502 段真实风格 Rust 代码 × 5 类 (所有权移动 E0382 / 借用冲突
   E0502·E0499 / 生命周期 E0597·E0106 / 类型不匹配 E0308·E0277 / 合法代码;
@@ -384,7 +401,13 @@ v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出
   编译失败样本), 每条附真实 rustc 错误码与报错信息, 见
   [`src/data/rust_coding.py`](src/data/rust_coding.py)
 * **输入模态**: text (代码原文, 代码感知分词) + numeric (静态扫描特征)
-* **结果 (当前, v0.11.0)**: CubeGPT 冻结水库 + 线性读出层, 5 种子 × 5 折
+* **插件 (v0.7.3)**: `RustCodingPlugin` (route=`rust`, base_model=`rust.coding`)
+  自带真实语料 `training_data()` 导出 (X, y) 供端到端训练; 可学习权重 =
+  每类别原型特征向量, 经 `.CuteMamen` 包 weights/ 存档还原; v0.8.6 起支持
+  `migrate_from_main_model()` 把主模型 (CubeGPT 水库读出层) 知识迁入插件
+  (76.7% 与主模型直评逐折一致), 分类用最近原型/读出层 + softmax 置信度,
+  结果广播 `rust.classified` 事件供插件间订阅。
+* **结果 (当前, v0.12.0)**: CubeGPT 冻结水库 + 线性读出层, 5 种子 × 5 折
   分层 CV **76.7%** (种子均值 75.1%–79.1%, 25 折全超随机基线 20%,
   L2=1e-3); v0.11.0 起纳入实验 R3 多任务基准, 见
   [`src/experiments/rust_report.md`](src/experiments/rust_report.md)
@@ -393,13 +416,6 @@ v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出
     借用冲突 76% / 生命周期 88% / 所有权移动 48% / 类型不匹配 44% /
     合法代码 32%
 * 复现: `python src/experiments/rust_benchmark.py`
-
-### RustCoding 思考插件 (v0.7.3)
-
-把 v0.6.0 的真实语料装进一个 CuteMamen 专家插件, **填补训练材料空白**:
-训练监督不再只有合成随机数据, 插件自带真实 Rust 代码 × 5 类真实
-rustc 错误作为可调用的训练/评估材料, 内核无需额外数据源
-(语料随 v0.8.4 P2 扩充至 502 段)。
 
 ```python
 from distributedformer.cutemamen import CuteMamenKernel, RustCodingPlugin
@@ -420,8 +436,40 @@ save_pkg(plugin, "plugin/MyRust.CuteMamen")
 loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
 ```
 
-可学习权重 = 每类别原型特征向量, 经 `.CuteMamen` 包 weights/ 存档还原;
-分类用最近原型 + softmax 置信度, 结果广播 `rust.classified` 事件供插件间订阅。
+### 视频生成训练 (v0.12.0)
+
+`VideoMakingPlugin` (route=`video`, base_model=`video.making`) 是可学习的
+轻量视频生成内核: 关键帧 + 镜头运动曲线 → 缓动仿射帧序列 + 转场合成
+(纯 numpy, 零 GPU)。其**可学习权重 = 真实运镜曲线** (10 种真实镜头运动,
+蒸馏自真实分镜/摄影惯例)。v0.12.0 补齐训练材料数据通路并纳入实验 R4:
+
+* **训练材料** (`training_data()`): 10 条真实运镜曲线按其真实插值进度稠密
+  采样为描述符样本 `(dx, dy, zoom, rot, progress)`, 标签 = 真实运动类别
+  (static / pan / tilt / zoom / dolly / orbit × 方向), 纯真实、无合成标签,
+  见 [`src/data/video_motion.py`](src/data/video_motion.py)
+* **结果 (实验 R4, v0.12.0)**: CubeGPT 冻结水库 (numeric 单面) + 线性读出
+  层, 5 种子 × 5 折分层 CV **val_acc 61.7% ± 9.8%** (25/25 折全超随机
+  基线 10%), 见
+  [`src/experiments/video_motion_report.md`](src/experiments/video_motion_report.md)
+* 复现: `python src/experiments/video_motion_benchmark.py`
+  或统一跑三任务: `dformer benchmark-all`（见
+  [`src/experiments/benchmark_all_report.md`](src/experiments/benchmark_all_report.md)）
+
+```python
+from distributedformer.cutemamen import CuteMamenKernel, VideoMakingPlugin
+kernel = CuteMamenKernel(dim=16)
+plugin = VideoMakingPlugin("video-making")          # route 默认 "video"
+kernel.mount(plugin)
+
+# 训练材料: 导出真实运镜曲线稠密采样 (X, y), 供端到端训练
+X, y = plugin.training_data()                       # (200, 5) / (200,) (10 类 × 20 点)
+
+# 现场生成: 关键帧 + 镜头运动 → 帧序列 (无 GPU)
+result = kernel.think({"topic": "video",
+                       "data": {"keyframes": [frame_hw3, frame_hw3],
+                                "shots": [{"motion": "zoom_in", "duration_s": 2.0}]}})
+# {'summary': {'n_frames': ..., 'shots': ['zoom_in'], 'shape': [...], 'kernel': 'lightweight-numpy-v1'}, ...}
+```
 
 ## 路线图
 
@@ -504,6 +552,14 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
   **✅ 已完成（v0.11.0）**：`TokenEmbedding` 嵌入层 + `PersistentOutputHead.dfeature()` 梯度回传，端到端可学习
 - [x] 学习规则改进：目标是在 ≥2 个真实任务上显著超过随机基线
   **✅ 已完成（v0.11.0）**：实验 R3 双任务（Rust 76.7% / Markdown 57.7%）25/25 折全超随机 20%
+- [x] v0.12.0 — **图形化 + 全面训练**：`VideoMakingPlugin` 补训练数据接口
+  （`motion_descriptors()` / `training_data()`）；第三真实训练材料
+  `VideoMotionDataset`（真实运镜曲线稠密采样，10 类）；实验 R4 真实运动
+  识别 **61.7% ± 9.8%**（25/25 折超随机 10%）；README 实验记录准确率表拆
+  为**主模型直评 / 思考插件推理**两张，训练材料 Rust 两节合二为一并新增
+  视频生成训练；新增 **Web 图形界面 `dformer ui`**（stdlib 零依赖控制台）
+  与 **全面训练 `dformer benchmark-all`**（三真实任务统一基准并汇总：
+  Rust 76.7% / Markdown 58.3% / 视频 61.7%，25/25 折全超基线）
 
 ### ~~准确率瓶颈解决方案（36% 瓶颈，v0.7.5 诊断结论）~~ ✅ 已完成（v0.8.4）
 
@@ -622,12 +678,12 @@ DistributedFormer/
 │   ├── codec/                   # 数值·文本·时序 → 脉冲编码; 脉冲 → 动作解码
 │   ├── agents/                  # 5 类脉冲智能体
 │   ├── workflow/                # 工作流引擎 + 消息路由
-│   ├── data/                    # 真实数据集: Rust 编码基准 (502 段) / Markdown 内容类型
+│   ├── data/                    # 真实数据集: Rust 编码基准 (502 段) / Markdown 内容类型 / 视频运镜曲线 (v0.12.0)
 │   ├── training/                # 监督/STDP 训练器 + 读出层验证协议
-│   ├── deployment/              # Docker / K8s / Redis / Prometheus / RedisKVStack (分布式 KV 后端)
+│   ├── deployment/              # Docker / K8s / Redis / Prometheus / RedisKVStack (分布式 KV 后端) / openai_server / web_ui (v0.12.0 图形界面)
 │   ├── security_monitor/        # 运行时安全监控 (意图探针 / 熔断 / 行为指纹 / 审计溯源)
 │   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
-│   ├── tests/                   # pytest 测试 (231 项)
+│   ├── tests/                   # pytest 测试 (234 项)
 │   ├── experiments/             # 实验脚本、结果与报告 (读出层验证 / 分布式架构评估)
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件

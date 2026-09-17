@@ -1,5 +1,43 @@
 # 更新日志
 
+## v0.12.0 (2026-09-17)
+
+新增**视频生成训练**（真实运动识别基准，实验 R4）、**Web 图形界面**
+（`dformer ui`）与**全面训练**（`dformer benchmark-all`，三真实任务统一
+基准），并翻新 README：实验记录准确率表拆分为"主模型直评 / 思考插件
+推理"两张、训练材料 Rust 两节合二为一。
+
+### 变更
+- **视频生成训练（`VideoMakingPlugin` 补训练数据接口）**：新增
+  `motion_descriptors()` 导出真实运镜曲线参数表（10 种真实镜头运动，
+  from/to 8 维描述符）、`training_data()` 导出稠密采样训练材料
+  `(X, y)`（与 `RustCodingPlugin.training_data()` 同构）。
+- **`src/data/video_motion.py`（VideoMotionDataset）**：第三个真实训练
+  材料——视频内核的真实运镜曲线按其真实插值进度稠密采样为描述符
+  `(dx, dy, zoom, rot, progress)`，识别属于哪一种真实运动类别（10 分类，
+  随机基线 10%），纯真实、无合成标签。
+- **`src/experiments/video_motion_benchmark.py`（实验 R4）**：5 种子 × 5
+  折分层 CV，冻结水库（numeric 单面）+ 线性读出层 L2 选优——真实运镜
+  识别 **val_acc 61.7% ± 9.8%**（25/25 折全超随机基线 10%）。
+- **全面训练 `dformer benchmark-all`（`src/experiments/benchmark_all.py`）**：
+  一次跑齐三真实任务统一基准并汇总（Rust / Markdown / 视频）——Rust
+  76.7% ± 3.7% / Markdown 58.3% ± 2.8% / 视频 61.7% ± 9.8%，25/25 折全超
+  各自随机基线，见 `benchmark_all_report.md`。
+- **Web 图形界面 `dformer ui`（`src/deployment/web_ui.py`）**：零第三方
+  依赖的本地浏览器控制台（stdlib http.server 单页 HTML/JS），含内核/插件
+  状态、思考控制台（rust/video/chat 在线 think）、三任务基准结果表。
+- **README 翻新**：实验记录准确率表拆分为**主模型直评**与**思考插件推理**
+  两张（思考插件 = RustCodingPlugin 知识迁移 / VideoMakingPlugin 训练）；
+  训练材料章节把 `Rust coding 真实基准` 与 `RustCoding 思考插件` 两节
+  合二为一，并新增 `视频生成训练` 小节；命令行文档新增 `benchmark-all` /
+  `ui`。
+- **测试**：新增 `src/tests/test_video_training.py`（3 项）。
+- **版本号**：0.11.0 → 0.12.0（pyproject / `__version__` /
+  `pkg.CORE_VERSION` / `min_core_version`）
+
+### 测试
+- 全量测试通过（234 项，含新增 video_training 3 项）。
+
 ## v0.11.0 (2026-09-17)
 
 大幅落地两条路线图主线，并正式开展与 **OmniSpace** 的生态合作。

@@ -125,10 +125,22 @@ def cmd_benchmark_multi(args):
     run_benchmark()
 
 
+def cmd_benchmark_all(args):
+    """全面训练: 三真实任务统一基准 (Rust/Markdown/视频) 并汇总 (v0.12.0)"""
+    from src.experiments.benchmark_all import main as run_benchmark_all
+    run_benchmark_all()
+
+
 def cmd_chat(args):
     """终端聊天: 与 CubeGPT 对话 (v0.7.1)"""
     from src.demos.chat import run_chat
     run_chat(depth=args.depth, dim=args.dim)
+
+
+def cmd_ui(args):
+    """Web 图形界面: 本地浏览器控制台 (内核/插件/思考/基准, v0.12.0)"""
+    from src.deployment.web_ui import main as run_ui
+    run_ui(host=args.host, port=args.port, depth=args.depth, dim=args.dim)
 
 
 def cmd_test(args):
@@ -209,11 +221,24 @@ def build_parser():
         help="多任务真实基准 (2 真实任务 5 种子 × 5 折 CV, 显著超随机基线)")
     p_bench_multi.set_defaults(func=cmd_benchmark_multi)
 
+    p_bench_all = sub.add_parser(
+        "benchmark-all",
+        help="全面训练: 三真实任务统一基准 (Rust/Markdown/视频) 并汇总 (v0.12.0)")
+    p_bench_all.set_defaults(func=cmd_benchmark_all)
+
     p_chat = sub.add_parser("chat", help="终端聊天: 与 CubeGPT 对话")
     p_chat.add_argument("--depth", type=int, default=2, choices=[0, 1, 2],
                         help="CubeGPT 深度 (默认 2)")
     p_chat.add_argument("--dim", type=int, default=16)
     p_chat.set_defaults(func=cmd_chat)
+
+    p_ui = sub.add_parser(
+        "ui", help="Web 图形界面: 本地浏览器控制台 (v0.12.0)")
+    p_ui.add_argument("--host", default="127.0.0.1")
+    p_ui.add_argument("--port", type=int, default=8001)
+    p_ui.add_argument("--depth", type=int, default=1, choices=[0, 1, 2])
+    p_ui.add_argument("--dim", type=int, default=16)
+    p_ui.set_defaults(func=cmd_ui)
 
     p_test = sub.add_parser("test", help="运行模块自检")
     p_test.set_defaults(func=cmd_test)

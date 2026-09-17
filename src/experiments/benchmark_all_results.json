@@ -1,0 +1,43 @@
+{
+  "experiment": "benchmark_all",
+  "version": "0.12.0",
+  "date": "2026-09-17",
+  "protocol": "stratified_5fold_cv",
+  "n_seeds": 5,
+  "n_folds": 5,
+  "tasks": [
+    {
+      "task": "Rust 编译错误族",
+      "material": "502 段真实 Rust 代码",
+      "n_classes": 5,
+      "random_baseline": 0.2,
+      "val_acc_mean": 0.7665882352941176,
+      "val_acc_std": 0.037206408066760455,
+      "folds_beat_random": 25,
+      "total_folds": 25,
+      "version": "0.11.0"
+    },
+    {
+      "task": "Markdown 内容类型",
+      "material": "仓库真实 Markdown 文档",
+      "n_classes": 5,
+      "random_baseline": 0.2,
+      "val_acc_mean": 0.5825965951609837,
+      "val_acc_std": 0.02795538845845838,
+      "folds_beat_random": 25,
+      "total_folds": 25,
+      "version": "0.11.0"
+    },
+    {
+      "task": "视频运动识别",
+      "material": "真实运镜曲线 × 10 类",
+      "n_classes": 10,
+      "random_baseline": 0.1,
+      "val_acc_mean": 0.617,
+      "val_acc_std": 0.09765244492586964,
+      "folds_beat_random": 25,
+      "total_folds": 25,
+      "version": "0.12.0"
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "experiment": "R4_video_motion_benchmark",
+  "version": "0.12.0",
+  "protocol": "stratified_5fold_cv",
+  "date": "2026-09-17",
+  "n_seeds": 5,
+  "n_folds": 5,
+  "n_classes": 10,
+  "n_points": 20,
+  "n_samples": 200,
+  "best_l2": 0.001,
+  "labels": [
+    "static",
+    "pan_left",
+    "pan_right",
+    "tilt_up",
+    "tilt_down",
+    "zoom_in",
+    "zoom_out",
+    "dolly_in",
+    "orbit_right",
+    "orbit_left"
+  ],
+  "val_acc_mean": 0.617,
+  "val_acc_std": 0.09765244492586964,
+  "val_acc_min": 0.425,
+  "val_acc_max": 0.775,
+  "seed_means": [
+    0.5850000000000001,
+    0.6300000000000001,
+    0.67,
+    0.64,
+    0.5599999999999999
+  ],
+  "seed_mean_min": 0.5599999999999999,
+  "seed_mean_max": 0.67,
+  "train_acc_mean": 0.74525,
+  "random_baseline": 0.1,
+  "majority_baseline": 0.1,
+  "beats_random_all_seeds": true,
+  "folds_beat_random": 25,
+  "total_folds": 25,
+  "results": [
+    {
+      "seed": 0,
+      "train_accuracy": 0.7324999999999999,
+      "val_accuracy": 0.5850000000000001,
+      "val_acc_per_fold": [
+        0.475,
+        0.525,
+        0.575,
+        0.625,
+        0.725
+      ],
+      "beats_random": true
+    },
+    {
+      "seed": 1,
+      "train_accuracy": 0.74875,
+      "val_accuracy": 0.6300000000000001,
+      "val_acc_per_fold": [
+        0.75,
+        0.425,
+        0.65,
+        0.75,
+        0.575
+      ],
+      "beats_random": true
+    },
+    {
+      "seed": 2,
+      "train_accuracy": 0.8149999999999998,
+      "val_accuracy": 0.67,
+      "val_acc_per_fold": [
+        0.725,
+        0.775,
+        0.7,
+        0.5,
+        0.65
+      ],
+      "beats_random": true
+    },
+    {
+      "seed": 3,
+      "train_accuracy": 0.7350000000000001,
+      "val_accuracy": 0.64,
+      "val_acc_per_fold": [
+        0.65,
+        0.525,
+        0.6,
+        0.75,
+        0.675
+      ],
+      "beats_random": true
+    },
+    {
+      "seed": 4,
+      "train_accuracy": 0.695,
+      "val_accuracy": 0.5599999999999999,
+      "val_acc_per_fold": [
+        0.65,
+        0.55,
+        0.575,
+        0.475,
+        0.55
+      ],
+      "beats_random": true
+    }
+  ]
+}
