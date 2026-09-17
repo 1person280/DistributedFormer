@@ -186,16 +186,27 @@ class DFTrainer:
                  use_think_supervision: bool = True,  # 是否启用思考层监督
                  n_classes: int = 5,  # 真实类别数 (rustc 错误族)
                  head_lr: float = 0.02,  # 持久输出头学习率
-                 fwd_steps: int = 4):  # 每样本前向步数 (水库充分演化)
+                 fwd_steps: int = 4,  # 每样本前向步数 (水库充分演化)
+                 freeze_reservoir_epoch: int = None,  # 冻结水库epoch (仅调输出头)
+                 lr_schedule: str = "cosine",  # constant/cosine/step (默认cosine, 缓解后期漂移)
+                 min_lr_ratio: float = 0.1,  # 调度最低 LR 相对比例
+                 step_drop_epoch: int = None):  # step 调度掉落点
         self.depth = depth
         self.dim = dim
         self.lr = learning_rate
         self.think_lr = think_lr
+        self._lr_start = learning_rate
+        self._think_lr_start = think_lr
         self.super_mod = super_modulation  # 保留参数 (v5.3 注入式监督已移除)
         self.use_think_supervision = use_think_supervision
         self.n_classes = n_classes
         self.head_lr = head_lr
         self.fwd_steps = fwd_steps
+        self.freeze_reservoir_epoch = freeze_reservoir_epoch
+        self.lr_schedule = lr_schedule
+        self.min_lr_ratio = min_lr_ratio
+        self.step_drop_epoch = step_drop_epoch
+        self.reservoir_frozen = False
         self.category_names = list(RustCodingTrainingDataset.CATEGORIES)
         
         # 网络 (训练模式: 跳过KV查询以加速)
@@ -275,7 +286,13 @@ class DFTrainer:
         使所有单元收到无差异更新 (error 相同的单元增量和完全一致)。
         现按 `receptive @ layer_input` 投影, 各单元对同一输入信号
         收到方向/幅度分化的梯度。
+
+        v5.4 (v0.10.2): 冻结水库后本函数直接返回 — 非平稳水库是端到端
+        训练后期验证漂移的根因, 冻结后与离线读出范式一致, 只调输出头。
         """
+        if self.reservoir_frozen:
+            return
+
         # 1. 输出层权重更新
         for i, unit in enumerate(self.df.output_units):
             error = target_pattern[i] - output_pattern[i]
@@ -485,6 +502,7 @@ class DFTrainer:
         
         for epoch in range(epochs):
             self.epoch = epoch
+            self._apply_schedule(epoch, epochs)
             
             train_metrics = self.train_epoch(train_samples)
             val_metrics = self.evaluate(val_samples)
@@ -541,6 +559,35 @@ class DFTrainer:
         
         return summary
     
+    def _apply_schedule(self, epoch: int, total_epochs: int) -> None:
+        """每 epoch 开头的 LR 调度 + 水库冻结 (v5.4 / v0.10.2)
+
+        针对端到端后期漂移: 非平稳水库 (w_in 持续受监督更新) 使
+        特征分布持续移动, 在线输出头追不上 → 后期验证准确率回落。
+        两种机制:
+          - lr_schedule=cosine/step: 后期降低 w_in 学习率, 放缓特征漂移
+          - freeze_reservoir_epoch: 冻结水库只调输出头 (同离线读出范式)
+        """
+        if (self.freeze_reservoir_epoch is not None
+                and epoch >= self.freeze_reservoir_epoch):
+            self.reservoir_frozen = True
+
+        if self.lr_schedule == "constant":
+            return
+
+        factor = 1.0
+        if self.lr_schedule == "cosine":
+            if total_epochs > 1:
+                progress = epoch / (total_epochs - 1)
+                factor = 0.5 * (1.0 + np.cos(np.pi * progress))
+        elif self.lr_schedule == "step":
+            if self.step_drop_epoch is not None and epoch >= self.step_drop_epoch:
+                factor = self.min_lr_ratio
+
+        factor = max(factor, self.min_lr_ratio)
+        self.lr = self._lr_start * factor
+        self.think_lr = self._think_lr_start * factor
+
     def save_weights(self, path: str) -> None:
         """保存网络权重 (标量权重版本)"""
         weights = {}

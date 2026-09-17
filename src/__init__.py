@@ -104,9 +104,19 @@ OpenCode 配置 baseURL 即把 CubeGPT 当编码模型后端; 三级流水线
 v0.9.2: 安全AI P1 落地 — Safety Shield 四方向齐全 (意图探针/熔断 P0,
 行为指纹与异常基线检测/全链路行为审计与溯源 P1); gate() 接入行为指纹
 判定与四元组审计存储, stats() 并入 fingerprint/tracer 统计。
+v0.10.0: 分布式多节点落地 — RedisKVStack 补齐与内存 KVStack 相同的协议
+(含主计算路径 retrieve()), 工作流引擎/记忆智能体可按后端切换内存或
+Redis 全局 KV; 多节点经 Redis 共享同一租户记忆, 租户 key 前缀隔离;
+dformer serve 支持 --kv-backend, docker-compose 双节点共享记忆。
+v0.10.1: 准确率基准同步与 L2 选优 — rust_benchmark 从 100 段单次 75/25
+升级为 502 段 5 折分层 CV (消除脚本/结果与 README 脱节), 读出层 L2 网格
+选优确认 1e-3 最优, 复测 25 折 76.7%, 与插件知识迁移逐折一致。
+v0.10.2: 修复端到端后期漂移 — DFTrainer 新增 LR 调度 (默认 cosine) 与
+水库冻结; cosine 后期降低 w_in 学习率, 非平稳水库不再使验证准确率回落,
+12 轮在 502 段语料上最终 epoch 稳定 (含深度2复评)。
 """
 
-__version__ = "0.9.2"
+__version__ = "0.10.2"
 
 # ── 仓库内零 __pycache__ (v0.8.7) ────────────────────────────
 # 在导入任何子模块前关闭字节码落地, 使直接运行 (python -m src /

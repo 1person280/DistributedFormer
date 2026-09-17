@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.2-orange)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.10.2-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#安全架构宣言--security-architecture-manifesto)
 
 </div>
@@ -291,7 +291,7 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 恒定调制淹没输入 → 权重配平）后，读出层在合成任务上达 64.8% ± 4.5%
 （5 种子，随机基线 25%）——方法学得到验证；合成任务随即被真实数据取代。
 
-### 真实数据（v0.7.5–今，当前 v0.8.6）
+### 真实数据（v0.7.5–今，当前 v0.10.1）
 
 训练/评估管道 100% 采用真实 Rust 编码基准语料（502 段真实代码 × 5 类
 真实 rustc 错误，随机基线 20%）。准确率轨迹（均为真实数据、5 种子）：
@@ -305,18 +305,31 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 | v0.8.3 | P2 交叉验证评估 | 5 种子 × 5 折分层 CV | 63.8% ± 10.0%（45%–85%）|
 | v0.8.4 | P2 扩真实语料 100 → 502 段 | 同上 | **75.6%**（种子均值 74.7%–76.3%，±0.8%）|
 | v0.8.6 | 知识迁移：主模型读出层 → Rust 思考插件（分布式架构） | 5 种子 × 5 折，插件路由推理 | **76.7%**（与主模型直评逐折一致）|
+| v0.10.1 | 基准同步 502 段 5 折 CV + 读出层 L2 选优 | 5 种子 × 5 折分层 CV | **76.7%**（种子均值 75.1%–79.1%，25 折全超基线，L2=1e-3）|
+| v0.10.2 | 端到端后期漂移修复（LR 调度/水库冻结） | 端到端监督训练 12 epoch | 见下方复评 |
+
+v0.10.2 端到端复评（502 段，12 epoch，深度1/2）：baseline（constant）仍
+出现后期崩落（seed1 末期跌至 44–51%）；默认 **cosine** 调度完全消除崩落，
+seed0 最终 epoch 至 **69.6%**、seed1 稳定在 **59.2%**（无回落）；水库冻结
+消除崩落但最佳验证略降。端到端最终 epoch 从"36%–60% 回落"稳定到
+**57%–70%**。
 
 v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出层准确率
 提升 11.8 个百分点，**种子间评估方差从 ±5% 收窄至 ±0.8%**（达到 P2
 的 ±2% 目标），折级 ±3.9% 为每折 ~100 验证样本的二项统计下限
-（p=0.75 时抽样噪声 ~±4.3%），属统计噪声而非方法不稳定。折级明细见
+（p=0.75 时抽样噪声 ~±4.3%），属统计噪声而非方法不稳定。v0.10.1 将
+基准脚本同步到 502 段 5 折 CV 后复测 **76.7%**（25 折），与 v0.8.6
+插件知识迁移逐折一致；读出层 L2 网格选优确认 1e-3 最优（更强正则
+1e-2/1e-1 略降），说明过拟合在 CV 下已非主瓶颈。折级明细见
 [src/experiments/readout_report.md](src/experiments/readout_report.md)。
 
 **如实报告的负面观察**：
-- 端到端训练（v0.8.2）存在后期漂移：67.2% 为早停选取的最佳验证，
-  最终 epoch 回落至 36%–60%（详见已知问题）
+- ~~端到端训练（v0.8.2）存在后期漂移~~ **已缓解（v0.10.2）**：默认 cosine
+  LR 调度后期降低 w_in 学习率，非平稳水库不再使验证准确率回落，最终 epoch
+  稳定在 57%–70%（详见上文端到端复评）
 - 读出层训练准确率从恒为 100%（100 段小语料）降至 ~97%（502 段），
   小语料过拟合迹象显著缓解，但训练/验证仍有约 20 个百分点间隙
+  （L2 增强对缩小该间隙收益有限，瓶颈在特征表征而非正则强度）
 
 ## 训练材料
 
@@ -332,12 +345,13 @@ v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出
   编译失败样本), 每条附真实 rustc 错误码与报错信息, 见
   [`src/data/rust_coding.py`](src/data/rust_coding.py)
 * **输入模态**: text (代码原文, 代码感知分词) + numeric (静态扫描特征)
-* **结果**: CubeGPT 读出层 5 种子验证准确率 **57.6% ± 10.3%**, 全部超过
-  随机基线 20% (v0.6.0 初版为 54.4% ± 5.4%, 修复 CubeFeatureExtractor
-  可复现性后复测提升), 见
+* **结果 (当前, v0.10.1)**: CubeGPT 冻结水库 + 线性读出层, 5 种子 × 5 折
+  分层 CV **76.7%** (种子均值 75.1%–79.1%, 25 折全超随机基线 20%,
+  L2=1e-3), 见
   [`src/experiments/rust_report.md`](src/experiments/rust_report.md)
-  * 各类别 (种子均值): 借用冲突 76% / 生命周期 88% / 所有权移动 48% /
-    类型不匹配 44% / 合法代码 32%
+  * 历史 (v0.6.0, 100 段单次 75/25): **57.6% ± 10.3%**; 各类别种子均值
+    借用冲突 76% / 生命周期 88% / 所有权移动 48% / 类型不匹配 44% /
+    合法代码 32%
 * 复现: `python src/experiments/rust_benchmark.py`
 
 ### RustCoding 思考插件 (v0.7.3)
@@ -354,7 +368,7 @@ plugin = RustCodingPlugin("rust-coding")            # route 默认 "rust"
 kernel.mount(plugin)
 
 # 训练材料: 直接导出真实特征 + 标签, 供端到端训练 (路线图数据通路)
-X, y = plugin.training_data()                       # (100, 10) / (100,)
+X, y = plugin.training_data()                       # (502, 特征维) / (502,) (v0.8.4 扩 502 段)
 
 # 现场思考: 分类一段 Rust 代码命中的编译错误类别
 result = kernel.think({"topic": "rust",
@@ -420,11 +434,25 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
   自动存档 + pytest 缓存 + Python 字节码缓存集中一处）；清理废弃路径与
   一次性临时文件；新增 `plugin/VideoMaking.CuteMamen` 轻量视频生成插件
   （关键帧 + 镜头运动曲线 → 缓动仿射帧序列，纯 numpy 零 GPU）
+- [x] v0.9.1 — **OpenAI 兼容接口服务器**：纯标准库 `http.server` 暴露
+  `/v1/models` 与 `/v1/chat/completions`（非流式 + SSE），OpenCode 配置
+  `baseURL` 即把 CubeGPT 当编码模型后端；三级流水线（前置感知 → 真 LLM
+  生成 → 后置审计），外挂 LLM 封装为 CuteMamen 插件 `LLMProviderPlugin`，
+  `dformer serve-opencode` 子命令
+- [x] v0.9.2 — **安全AI P1 收官**：行为指纹与异常基线检测 + 全链路行为
+  审计与溯源落地，Safety Shield 四方向齐全
+- [x] v0.10.0 — **分布式多节点落地**：`RedisKVStack` 补齐与内存 `KVStack`
+  相同的协议（含主计算路径 `retrieve()`），工作流引擎 / 记忆智能体可按
+  后端切换内存或 Redis 全局 KV；多节点经 Redis 共享同一租户记忆，租户
+  key 前缀隔离；`dformer serve` 支持 `--kv-backend` 切换
+- [x] v0.10.1 — **准确率基准同步与 L2 选优**：`rust_benchmark.py` 从旧的
+  100 段单次 75/25 升级为 **502 段 × 5 折分层 CV**（消除脚本/结果与 README
+  的脱节）；读出层 L2 网格选优确认 1e-3 最优；复测 25 折 **76.7%**
+  （种子均值 75.1%–79.1%），与 v0.8.6 插件知识迁移逐折一致
 - [ ] 分类式 token：一个 token 占 64 比特数据，纯文本场景下前 32 比特为
   token 组、后 32 比特直接为 utf8-mb4 字符；设硬性分组，如
   `0x00000000xxxxxxxx` 保留为 utf8-mb4 字符 token 组
 - [ ] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路, RustCodingPlugin 导出 X/y）
-- [ ] Redis 分布式 KV 堆在多节点工作流中实际启用
 - [ ] 学习规则改进：目标是在 ≥2 个真实任务上显著超过随机基线
 
 ### ~~准确率瓶颈解决方案（36% 瓶颈，v0.7.5 诊断结论）~~ ✅ 已完成（v0.8.4）
@@ -492,7 +520,7 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
    支持安全事件完整复盘溯源，满足强监管行业的合规审计需求
    （`src/security_monitor/action_tracer.py`）
 
-### 已知问题（v0.8.4 状态）
+### 已知问题（v0.10.2 状态）
 
 * ~~KV 堆注意力未接入主计算路径~~ **已修复（v0.5.0）**：`KVStack.retrieve()` 现为
   FractalLayer / 输入端口 / 输出头的真实注意力来源，记忆影响网络动力学；
@@ -519,12 +547,14 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
 * ~~CuteMamen 插件标准只有规范文档~~ **已落地（v0.7.2）**：`src/cutemamen`
   包实现内核 / 生命周期钩子 / 三级记忆 / 事件总线 / 内存预算淘汰 / LoRA 桥接 /
   迁移工具，`migrate-v1-to-v2` 命令随包安装。
-* **端到端训练存在后期漂移（v0.8.2）**：在线持久输出头 + 非平稳水库
-  （w_in 持续受监督更新）的组合使训练后期验证准确率回落——最佳验证
-  67.2%（56%–80%，5 种子，早停选取），最终 epoch 回落至 36%–60%。
-  拟议方向：降低后期学习率 / 冻结水库只调输出头（同离线读出范式）；
-  v0.8.4 已扩语料至 502 段，小样本过拟合明显缓解（读出层训练准确率
-  100% → ~97%），端到端路径待在扩语料上复评。
+* **端到端训练存在后期漂移（v0.8.2）** ~~仍待复评~~ **已在 v0.10.2 缓解**：
+  在线持久输出头 + 非平稳水库（w_in 持续受监督更新）使训练后期验证准确率
+  回落——最佳验证 67.2%（56%–80%，5 种子，早停选取），最终 epoch 曾回落至
+  36%–60%。**v0.10.2 在 502 段扩语料上复评并修复**：默认 `cosine` LR 调度
+  后期将 w_in/思考层学习率平滑衰减到 0.1×，`constant` 的后期崩落被完全
+  消除，最终 epoch 稳定至 57%–70%；`--freeze-reservoir-epoch` 亦可冻结水库
+  只调输出头（同离线读出范式），同样消除崩落但最佳验证略降。复评数字见上文
+  准确率表与 v0.10.2 变更日志。
 
 ## 文档
 
@@ -544,10 +574,10 @@ DistributedFormer/
 │   ├── workflow/                # 工作流引擎 + 消息路由
 │   ├── data/                    # 真实数据集: Rust 编码基准 (502 段)
 │   ├── training/                # 监督/STDP 训练器 + 读出层验证协议
-│   ├── deployment/              # Docker / K8s / Redis / Prometheus
+│   ├── deployment/              # Docker / K8s / Redis / Prometheus / RedisKVStack (分布式 KV 后端)
 │   ├── security_monitor/        # 运行时安全监控 (意图探针 / 熔断 / 行为指纹 / 审计溯源)
 │   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
-│   ├── tests/                   # pytest 测试 (191 项)
+│   ├── tests/                   # pytest 测试 (203 项)
 │   ├── experiments/             # 实验脚本、结果与报告 (读出层验证 / 分布式架构评估)
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件

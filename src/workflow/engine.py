@@ -40,6 +40,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.core.distributedformer import SpikeMessage, KVStack
+from src.deployment.redis_kv import create_kv_stack
 from src.agents.base_agent import (
     BaseSpikeAgent, PerceptionAgent, ReasoningAgent, 
     ActionAgent, MemoryAgent, RhythmAgent
@@ -130,8 +131,10 @@ class SpikeWorkflowEngine:
     管理整个脉冲智能体网络的执行
     """
     
-    def __init__(self, config: Optional[WorkflowConfig] = None):
+    def __init__(self, config: Optional[WorkflowConfig] = None,
+                 kv_backend: str = "auto"):
         self.config = config or WorkflowConfig()
+        self.kv_backend = kv_backend  # "memory" | "redis" | "auto" (读 KV_BACKEND)
         
         # 智能体注册表
         self.agents: Dict[str, BaseSpikeAgent] = {}
@@ -139,10 +142,12 @@ class SpikeWorkflowEngine:
         # 消息路由器
         self.router = MessageRouter()
         
-        # 全局KV堆 (共享)
-        self.global_kv = KVStack(
-            capacity=self.config.kv_capacity, 
-            dim=self.config.dim
+        # 全局KV堆 (共享; 按后端选择内存 KVStack 或 RedisKVStack)
+        self.global_kv = create_kv_stack(
+            self.kv_backend,
+            capacity=self.config.kv_capacity,
+            dim=self.config.dim,
+            retention_policy="lru_7d",
         )
         
         # 节律智能体
@@ -239,7 +244,9 @@ class SpikeWorkflowEngine:
         elif agent_type == 'memory':
             kv_cap = agent_def.get('kv_capacity', 100000)
             retention = agent_def.get('retention_policy', 'lru_7d')
-            agent = MemoryAgent(agent_id, kv_cap, dim, retention)
+            agent = MemoryAgent(agent_id, kv_capacity=kv_cap, dim=dim,
+                                retention_policy=retention,
+                                kv_stack=self.global_kv)
             
         elif agent_type == 'rhythm':
             agent = RhythmAgent(

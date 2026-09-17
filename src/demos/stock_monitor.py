@@ -184,12 +184,13 @@ class StockMonitorWorkflow:
                      传入 YFinanceDataSource 即可切换为真实行情
     """
 
-    def __init__(self, tickers: List[str] = None, data_source=None):
+    def __init__(self, tickers: List[str] = None, data_source=None,
+                 kv_backend: str = "auto"):
         self.tickers = tickers or ["AAPL", "TSLA", "NVDA"]
         self.simulator = data_source if data_source is not None else StockDataSimulator()
         self.codec = MultiModalCodec(dim=16)
         
-        # 工作流引擎
+        # 工作流引擎 (kv_backend: memory/redis/auto, v0.10.0 分布式多节点)
         config = WorkflowConfig(
             name="智能股票监控脉冲网络",
             cycle_length=120,
@@ -197,7 +198,7 @@ class StockMonitorWorkflow:
             inhibit_phase=40,
             dim=16
         )
-        self.engine = SpikeWorkflowEngine(config)
+        self.engine = SpikeWorkflowEngine(config, kv_backend=kv_backend)
         
         # 监控结果
         self.anomalies_detected = 0

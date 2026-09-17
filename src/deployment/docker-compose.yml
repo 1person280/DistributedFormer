@@ -1,4 +1,4 @@
-﻿version: '3.8'
+version: '3.8'
 
 services:
   redis:
@@ -28,10 +28,11 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
+      - KV_BACKEND=redis
       - DF_DEPTH=2
       - DF_DIM=16
       - KV_CAPACITY=100000
-      - TENANT_ID=tenant_001
+      - TENANT_ID=shared_tenant
       - PYTHONUNBUFFERED=1
     volumes:
       - ../reports:/app/reports
@@ -56,10 +57,11 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
+      - KV_BACKEND=redis
       - DF_DEPTH=2
       - DF_DIM=16
       - KV_CAPACITY=100000
-      - TENANT_ID=tenant_002
+      - TENANT_ID=shared_tenant
       - PYTHONUNBUFFERED=1
     volumes:
       - ../reports:/app/reports

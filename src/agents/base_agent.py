@@ -748,12 +748,16 @@ class MemoryAgent(BaseSpikeAgent):
     """
     
     def __init__(self, agent_id: str, kv_capacity: int = 100000, 
-                 dim: int = 16, retention_policy: str = "lru_7d"):
-        super().__init__(agent_id, "memory", df_depth=0, dim=dim)
+                 dim: int = 16, retention_policy: str = "lru_7d",
+                 kv_stack: Optional[Any] = None):
+        super().__init__(agent_id, "memory", df_depth=0, dim=dim,
+                         kv_stack=kv_stack)
         
-        # 使用更大的KV堆
-        self.kv_stack = KVStack(capacity=kv_capacity, dim=dim, 
-                                 retention_policy=retention_policy)
+        # 使用更大的KV堆; 外部注入共享后端 (如 Redis) 时复用,
+        # 否则自建内存 KVStack (v0.10.0 支持多节点共享记忆)
+        if kv_stack is None:
+            self.kv_stack = KVStack(capacity=kv_capacity, dim=dim, 
+                                    retention_policy=retention_policy)
         self.retention_policy = retention_policy
         
     def handle_query(self, query_signal: np.ndarray, top_k: int = 3) -> List[Tuple]:

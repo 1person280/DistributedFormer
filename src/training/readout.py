@@ -1,4 +1,4 @@
-﻿"""
+"""
 训练方法学验证: 线性读出层 (reservoir computing 范式)
 
 动机: v5.2 的"注入-前向-恢复"监督规则在消融实验中未超过随机基线。
@@ -146,12 +146,14 @@ def run_validation(seed: int = 0, depth: int = 1, verbose: bool = False) -> Dict
 
 
 def run_cross_validation(seed: int = 0, depth: int = 1, n_folds: int = 5,
-                         verbose: bool = False) -> Dict:
+                         verbose: bool = False, l2: float = 1e-3) -> Dict:
     """单种子分层 K 折交叉验证 (P2: 替代单次 75/25 划分)
 
     每个样本恰好作为一次验证样本 (训练集 = 其余折并集),
     评估结论不再依赖划分运气。特征按 sample_id 缓存, 每样本
     仅提取一次。返回折级明细 + 折均值准确率。
+
+    l2: 读出层 L2 正则强度 (v0.10.1 起可调, 默认 1e-3 与插件迁移一致)。
     """
     dataset = RustCodingTrainingDataset(dim=16)
     splits = dataset.kfold_datasets(n_folds=n_folds, seed=seed)
@@ -173,7 +175,7 @@ def run_cross_validation(seed: int = 0, depth: int = 1, n_folds: int = 5,
         y_train = np.array([s.category for s in train])
         y_val = np.array([s.category for s in val])
         readout = LinearReadout(n_features=X_train.shape[1], n_classes=5,
-                                seed=seed).fit(X_train, y_train)
+                                seed=seed, l2=l2).fit(X_train, y_train)
         val_acc = readout.accuracy(X_val, y_val)
         train_acc = readout.accuracy(X_train, y_train)
         majority = float(np.bincount(y_train).max() / len(y_train))

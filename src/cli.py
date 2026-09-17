@@ -46,12 +46,15 @@ def cmd_serve(args):
     else:
         print("[serve] 数据源: 内置模拟器 (加 --realtime 切换真实行情)")
 
-    workflow = StockMonitorWorkflow(tickers=args.tickers, data_source=data_source)
+    workflow = StockMonitorWorkflow(tickers=args.tickers, data_source=data_source,
+                                    kv_backend=args.kv_backend)
     report_dir = os.path.join(args.output_dir, "reports")
     os.makedirs(report_dir, exist_ok=True)
 
     print(f"[serve] 监控标的: {', '.join(args.tickers)}")
     print(f"[serve] 轮询间隔: {args.interval}s  报告目录: {report_dir}")
+    print(f"[serve] KV 后端: {args.kv_backend}"
+          f" ({workflow.engine.global_kv.get_stats().get('backend', 'memory')})")
     print("[serve] Ctrl+C 停止")
 
     cycle = 0
@@ -92,7 +95,10 @@ def cmd_train(args):
 
     dataset = RustCodingTrainingDataset(dim=16)
     train, val = dataset.generate_dataset(train_ratio=0.75, seed=args.seed)
-    trainer = DFTrainer(depth=args.depth, dim=16, learning_rate=args.lr)
+    trainer = DFTrainer(depth=args.depth, dim=16, learning_rate=args.lr,
+                        freeze_reservoir_epoch=args.freeze_reservoir_epoch,
+                        lr_schedule=args.lr_schedule,
+                        step_drop_epoch=args.step_drop_epoch)
     summary = trainer.train(train, val, epochs=args.epochs, save_dir=args.save_dir)
     report = trainer.generate_training_report()
     os.makedirs(args.save_dir, exist_ok=True)
@@ -133,6 +139,8 @@ def build_parser():
     p_serve.add_argument("--interval", type=float, default=300.0, help="轮询间隔秒数")
     p_serve.add_argument("--realtime", action="store_true", help="使用 yfinance 真实行情")
     p_serve.add_argument("--output-dir", default=".")
+    p_serve.add_argument("--kv-backend", default="auto", choices=["memory", "redis", "auto"],
+                         help="KV 后端: memory/redis/auto (auto 读 KV_BACKEND, 默认 memory)")
     p_serve.set_defaults(func=cmd_serve)
 
     p_opencode = sub.add_parser(
@@ -167,6 +175,13 @@ def build_parser():
     p_train.add_argument("--lr", type=float, default=0.008)
     p_train.add_argument("--seed", type=int, default=42, help="分层划分种子")
     p_train.add_argument("--save-dir", default="training/checkpoints")
+    p_train.add_argument("--freeze-reservoir-epoch", type=int, default=None,
+                         help="冻结水库epoch (仅调输出头, 同离线读出范式)")
+    p_train.add_argument("--lr-schedule", default="cosine",
+                         choices=["constant", "cosine", "step"],
+                         help="w_in 学习率调度 (cosine 后期降低, 缓解端到端后期漂移)")
+    p_train.add_argument("--step-drop-epoch", type=int, default=None,
+                         help="step 调度 LR 掉落点")
     p_train.set_defaults(func=cmd_train)
 
     p_chat = sub.add_parser("chat", help="终端聊天: 与 CubeGPT 对话")

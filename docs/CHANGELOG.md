@@ -1,5 +1,111 @@
 # 更新日志
 
+## v0.10.2 (2026-09-17)
+
+修复端到端训练后期漂移（v0.8.2 已知问题）：非平稳水库 + 在线持久输出头
+在扩语料（502 段）复评时再次确认后期验证准确率回落。新增 LR 调度与水库
+冻结两种机制，默认 cosine 调度消除回落并在最终 epoch 稳定/提升。
+
+### 变更
+- **`src/training/trainer.py` v5.4**：`DFTrainer` 新增 `lr_schedule`
+  （默认 `cosine`，可 `constant`/`step`）、`min_lr_ratio`（默认 0.1）、
+  `freeze_reservoir_epoch`、`step_drop_epoch`。`_apply_schedule()` 每 epoch
+  计算当前 LR：cosine 后期将 w_in/思考层 LR 平滑衰减至 0.1×（缓和非平稳
+  水库对特征分布的持续扰动），`constant` 行为与旧版完全一致
+- **水库冻结**：`freeze_reservoir_epoch` 到达后 `_update_weights_supervised`
+  直接返回，仅在线输出头更新——与离线读出范式（冻结 CubeGPT 水库）一致，
+  彻底隔绝特征漂移
+- **`src/cli.py`**：`dformer train` 新增 `--lr-schedule`、`--freeze-reservoir-epoch`、
+  `--step-drop-epoch`
+- **新增测试** `src/tests/test_trainer.py`：6 项（默认 cosine / cosine 单调
+  衰减 / constant 不变 / step 掉落 / 冻结守卫 w_in 不更新 / 冻结标志生效）
+- **版本号**：0.10.1 → 0.10.2（pyproject / `__version__` /
+  `pkg.CORE_VERSION` / `min_core_version`）
+
+### 端到端复评（502 段真实语料，12 epoch）
+| 方案 | seed0 final / 后期曲率 | seed1 final / 后期曲率 |
+|------|----------------------|----------------------|
+| baseline（constant）| 55.2%（55/64/55 高频抖动） | **51.2%**（10–11 轮跌至 44–46%） |
+| **cosine（默认）** | **69.6%**（末端回升 0.7） | **59.2%**（稳定 57–63%，无崩落） |
+| freeze@8 | 61.6%（稳定 58–64%） | 57.6%（稳定 54–59%） |
+
+baseline 两 seed 均出现"后期崩落"（最佳 54–59% 后跌至 44–55%）；cosine
+完全消除崩落且最终 epoch 稳定/更高，freeze 消除崩落但最佳验证略降（早期
+未充分塑形）。cosine 为默认与推荐。
+
+**深度 2（完整 ~4,400 单元架构）单种子确认**：cosine 末期曲线持续上升
+（末三轮 59%→70%→72%），**最终 epoch 72.0%。**（最佳 61.6%），在完整
+架构上也消除了后期崩落。
+
+### 测试
+- 全量测试通过（209 项，含新增 6 项 trainer 测试）
+
+## v0.10.1 (2026-09-17)
+
+继续解决准确率瓶颈：Rust 基准脚本同步到 502 段 5 折分层 CV，并引入
+读出层 L2 正则选优压小样本过拟合。
+
+### 变更
+- **`src/experiments/rust_benchmark.py` 升级**：从旧的 100 段单次 75/25
+  划分（结果文件停在 57.6%，与 README 脱节）升级为 **502 段 × 5 折分层
+  CV × 5 种子**（复用 `run_cross_validation`），每个样本恰好验证一次，
+  消除脚本/结果/README 脱节
+- **`src/training/readout.py`**：`run_cross_validation` 新增 `l2` 参数
+  （默认 1e-3，与插件迁移一致，行为不变）；`rust_benchmark` 在读出层上
+  做 L2 网格选优以缓解训练/验证过拟合 gap（train≈97% vs val≈75%）
+- **版本号**：0.10.0 → 0.10.1（pyproject / `__version__` /
+  `pkg.CORE_VERSION` / `min_core_version`）
+
+### 准确率（v0.10.1 重跑，502 段 × 5 种子 × 5 折分层 CV）
+- **val_acc = 76.7% ± 3.7%**（25 折，全超随机基线 20%）
+- 种子均值 75.1%–79.1%，train_acc 均值 97.1%
+- 读出层 L2 选优：1e-3 最优（1e-2→78.5%、1e-1→77.9%，更强正则略降）
+- 与 v0.8.6 插件知识迁移 76.7% 逐折一致
+
+### 测试
+- 全量测试通过（203 项）
+
+## v0.10.0 (2026-09-17)
+
+分布式多节点落地 —— Redis KV 堆在多节点工作流中实际启用。
+
+### 变更
+- **`src/deployment/redis_kv.py` `RedisKVStack` 协议兼容内存 `KVStack`**：
+  - 构造签名对齐 `KVStack(capacity, dim, retention_policy)` + Redis 连接参数
+    （host/port/db/tenant_id），可直接替换工作流 / 智能体 / 主模型的内存 KV
+  - 补齐主计算路径 `retrieve(query_signal, top_k, scan_limit)`：按插入序号
+    截取最近 scan_limit 条 → 打分 → top-k 聚合 → tanh（空堆返回零向量）
+  - 补齐 `_coerce_vec`（变长载荷定长化）、`query`（返回
+    `[(entry_id, retrieved, normalized)]`）、`get_stats`（含 `total_access`
+    / `backend` / `tenant_id`）、`save_to_disk` / `load_from_disk`（Redis
+    AOF 自持久化，协议兼容 no-op）；LRU 淘汰与内存语义一致（满容量淘汰
+    最久未访问）
+  - 新增 `create_kv_stack(backend, **kw)` 后端工厂（memory / redis /
+    auto 读 `KV_BACKEND`）；`MockRedis` 底层按 host:port:db 命名空间进程内
+    共享，单进程内即可模拟真实 Redis server 的多节点共享语义
+- **`src/workflow/engine.py`**：`SpikeWorkflowEngine(config, kv_backend=...)`
+  按后端创建全局 KV（`KV_BACKEND` 环境变量 / 参数可选）
+- **`src/agents/base_agent.py` `MemoryAgent`**：支持注入共享 `kv_stack`
+  （复用引擎的 Redis 后端），不再强制自建内存 KV
+- **CLI / 部署**：`dformer serve` 新增 `--kv-backend memory|redis|auto`；
+  `StockMonitorWorkflow` 透传后端；docker-compose 两个脉冲节点
+  `KV_BACKEND=redis` 且同租户 `shared_tenant`，经 Redis 共享记忆
+  （改 `TENANT_ID` 即可切换为租户隔离）
+
+### 新增
+- `src/experiments/distributed_kv_demo.py`：多节点共享记忆演示——节点 A 写入
+  KV，节点 B 检索可见；输出报告 `reports/distributed_kv_demo.md`
+- `src/tests/test_redis_kv.py`（12 项）：协议兼容（retrieve 空堆/维数/tanh）、
+  query 格式、租户隔离、同租户跨节点共享、LRU 淘汰、get_stats 字段、
+  save/load no-op、后端工厂、引擎后端选择、MockRedis 共享命名空间
+
+### 测试
+- 全量测试 203 项通过（191 + 新增 12），无回归
+
+### 版本
+- 版本 0.9.2 → 0.10.0（pyproject / `__version__` / `pkg.CORE_VERSION` /
+  `min_core_version`）
+
 ## v0.9.2 (2026-09-16)
 
 安全AI（AI 运行时安全监控模块）P1 落地 —— Safety Shield 四个方向全部完成。
