@@ -100,6 +100,10 @@ def load_md_text() -> List[Dict]:
                 in_code = not in_code
                 continue
             if in_code:
+                # 代码块内的空行无判别信息, 与整体"空行跳过"规则一致
+                # (空行 token 序列为空, 折叠出的脉冲信号全零, 不应成样本)
+                if not stripped:
+                    continue
                 # 复用 rust_coding.stratified_* 需要 "label" 键 (类别名字符串)
                 rows.append({"text": line, "type": "code",
                              "label": "code"})
