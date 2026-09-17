@@ -173,6 +173,66 @@ class PersistentOutputHead:
         self.W -= self.lr * (np.outer(grad, xb) + self.l2 * self.W)
         return float(loss)
 
+    def dfeature(self, x: np.ndarray, y: int) -> np.ndarray:
+        """损失对原始特征的梯度 ∂L/∂x (供端到端回传到输入编码层, v0.11.0)
+
+        不更新在线统计/权重, 仅用当前 head 状态计算梯度:
+        ∂L/∂x = (prob - onehot) @ W[:, :-1] / std 。返回与 x 同形状向量。
+        """
+        xs = self._standardize(x, update=False)
+        xb = self._with_bias(xs)
+        logits = self.W @ xb
+        logits -= logits.max()
+        prob = np.exp(logits) / np.exp(logits).sum()
+        grad = prob.copy()
+        grad[y] -= 1.0
+        std = np.sqrt(np.maximum(self.m2_ - self.mean_ ** 2, 1e-8))
+        return (grad @ self.W[:, :-1]) / std
+
+
+class TokenEmbedding:
+    """可训练分类式 token 嵌入层 (v0.11.0 · CubeGPT 端到端可学习)
+
+    把 64 比特 class-token 序列映射/累加为固定维度向量, 权重随
+    持久输出头梯度在线更新 —— 学习信号**回传到输入编码层**,
+    使编码与网络一起端到端可学习 (不止冻结水库 + 线性读出)。
+
+    每个 token 确定性哈希到嵌入矩阵一列 (crc32 于 8 字节原值),
+    词袋求和后 L2 归一化; 更新为生物式局部增量 (+ 列归一防发散)。
+    """
+
+    def __init__(self, hid: int = 32, n_cols: int = 4096,
+                 seed: int = 0, decay: float = 1e-3):
+        self.hid = hid
+        self.n_cols = n_cols
+        self.decay = decay
+        rng = np.random.RandomState(seed)
+        self.W = rng.randn(hid, n_cols) * 0.05
+
+    def _col(self, tok: int) -> int:
+        import zlib
+        return zlib.crc32(int(tok).to_bytes(8, byteorder="little")) % self.n_cols
+
+    def forward(self, tokens) -> np.ndarray:
+        """token 序列 → hid 维向量 (求和 + L2 归一化)"""
+        v = np.zeros(self.hid)
+        for tok in tokens:
+            v += self.W[:, self._col(tok)]
+        n = np.linalg.norm(v)
+        if n > 0:
+            v = v / n
+        return v
+
+    def update(self, dfeat: np.ndarray, tokens, lr: float) -> None:
+        """在线局部更新: W[:, col] = (1-lr·decay)·W - lr·dfeat"""
+        for tok in tokens:
+            c = self._col(tok)
+            self.W[:, c] = (1.0 - lr * self.decay) * self.W[:, c] \
+                - lr * dfeat
+        # 列归一, 防止嵌人范数发散 (重缩放不改变方向, 稳定在线训练)
+        coln = np.linalg.norm(self.W, axis=0)
+        self.W /= np.maximum(coln, 1e-8)[None, :]
+
 
 class DFTrainer:
     """DistributedFormer 训练器 v5.3"""
@@ -190,7 +250,9 @@ class DFTrainer:
                  freeze_reservoir_epoch: int = None,  # 冻结水库epoch (仅调输出头)
                  lr_schedule: str = "cosine",  # constant/cosine/step (默认cosine, 缓解后期漂移)
                  min_lr_ratio: float = 0.1,  # 调度最低 LR 相对比例
-                 step_drop_epoch: int = None):  # step 调度掉落点
+                 step_drop_epoch: int = None,  # step 调度掉落点
+                 use_token_input: bool = False,  # 端到端: 接入可训练 class-token 嵌入 (v0.11.0)
+                 token_hid: int = 32):  # 嵌入维度
         self.depth = depth
         self.dim = dim
         self.lr = learning_rate
@@ -207,6 +269,10 @@ class DFTrainer:
         self.min_lr_ratio = min_lr_ratio
         self.step_drop_epoch = step_drop_epoch
         self.reservoir_frozen = False
+        self.use_token_input = use_token_input
+        self.token_hid = token_hid
+        self.token_emb: TokenEmbedding = None  # 惰性构建 (首见 token 输入)
+        self.token_emb_lr = head_lr * 0.5      # 嵌入层学习率 (略低于 head)
         self.category_names = list(RustCodingTrainingDataset.CATEGORIES)
         
         # 网络 (训练模式: 跳过KV查询以加速)
@@ -240,10 +306,12 @@ class DFTrainer:
         self.patience = 15  # 增加耐心值 (大网络需要更多epoch)
         self.patience_counter = 0
     
-    def _forward_features(self, inputs: Dict) -> Tuple[np.ndarray, int]:
+    def _forward_features(self, inputs: Dict, tokens=None) -> Tuple[np.ndarray, int]:
         """多步前向并提取水库特征 (v5.3: 供持久输出头消费)
 
         特征 = [思考层各单元状态幅值 | 输出模式 | 思考层聚合模式]。
+        v0.11.0: 启用 use_token_input 且有 class-token 序列时, 前置拼接
+        可训练 token 嵌入向量, 学习信号可回传到输入编码层 (端到端)。
         """
         self.df.reset_state()
         last_spikes = []
@@ -257,7 +325,23 @@ class DFTrainer:
         else:
             reservoir = np.array([abs(u.state).mean()
                                   for u in layer._all_units_cache])
-        return np.concatenate([reservoir, out, think]), len(last_spikes)
+        features = np.concatenate([reservoir, out, think])
+        if self.use_token_input and tokens is not None:
+            # 恒定拼接嵌入块 (空序列 → 零向量), 保证特征维度跨样本一致
+            if self.token_emb is None:
+                self.token_emb = TokenEmbedding(hid=self.token_hid)
+            emb = self.token_emb.forward(tokens)
+            features = np.concatenate([emb, features])
+        return features, len(last_spikes)
+
+    @staticmethod
+    def _tokens_of(sample) -> List[int]:
+        """样本的 64 比特 class-token 序列 (v0.11.0)"""
+        toks = getattr(sample, "token_seq", None)
+        if toks is None:
+            toks = (sample.metadata.get("token_seq")
+                    if sample.metadata else None)
+        return toks or []
     
     def _sample_inputs(self, sample: TrainingSample) -> Dict:
         """P0 双模态: 语法特征走 numeric 通路, 代码原文走 text 通路"""
@@ -336,7 +420,8 @@ class DFTrainer:
         网络内部 w_in 仍按感受野投影监督更新。
         """
         # 前向传播 (P0 双模态) + 水库特征提取
-        features, n_spikes = self._forward_features(self._sample_inputs(sample))
+        tokens = self._tokens_of(sample)
+        features, n_spikes = self._forward_features(self._sample_inputs(sample), tokens)
         
         # 惰性构建持久输出头
         if self.head is None:
@@ -348,6 +433,12 @@ class DFTrainer:
         pred = self.head.predict(features)
         is_correct = (pred == sample.category)
         ce_loss = self.head.update(features, sample.category)
+
+        # v0.11.0 端到端: 学习信号回传到可训练 token 嵌入层
+        if self.use_token_input and self.token_emb is not None and tokens:
+            dfeat = self.head.dfeature(features, sample.category)
+            emb_len = self.token_emb.hid
+            self.token_emb.update(dfeat[:emb_len], tokens, lr=self.token_emb_lr)
         
         # 网络塑形损失 (发放率/激活/抑制/思考层对齐, 仅作监控与 w_in 更新依据)
         output_pattern = self.df.get_output_pattern()
@@ -429,7 +520,8 @@ class DFTrainer:
         per_class_total = {c: 0 for c in range(self.n_classes)}
         
         for sample in samples:
-            features, n_spikes = self._forward_features(self._sample_inputs(sample))
+            tokens = self._tokens_of(sample)
+            features, n_spikes = self._forward_features(self._sample_inputs(sample), tokens)
             
             if self.head is not None:
                 pred = self.head.predict(features)
@@ -617,6 +709,14 @@ class DFTrainer:
                 "W": self.head.W, "mean": self.head.mean_,
                 "m2": self.head.m2_, "n_seen": int(self.head.n_seen),
             }
+
+        # 可训练分类式 token 嵌入层 (v0.11.0)
+        if self.token_emb is not None:
+            weights["_token_emb"] = {
+                "W": self.token_emb.W,
+                "hid": int(self.token_emb.hid),
+                "n_cols": int(self.token_emb.n_cols),
+            }
         
         np.savez(path, **{k: json.dumps(v, default=self._json_serialize) 
                           for k, v in weights.items()})
@@ -644,6 +744,12 @@ class DFTrainer:
                     self.head.mean_ = np.array(h["mean"])
                     self.head.m2_ = np.array(h["m2"])
                     self.head.n_seen = h["n_seen"]
+                elif key == "_token_emb":
+                    e = json.loads(data[key].item())
+                    emb = TokenEmbedding(hid=int(e["hid"]),
+                                         n_cols=int(e["n_cols"]))
+                    emb.W = np.array(e["W"])
+                    self.token_emb = emb
                 continue
             
             if key in units_map:

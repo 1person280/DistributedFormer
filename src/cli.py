@@ -5,7 +5,8 @@ DistributedFormer 命令行入口
   demo          股票监控端到端演示 (模拟数据)
   serve         长驻监控服务 (容器/生产部署入口, 支持 --realtime 真实行情)
   serve-opencode 启动 OpenAI 兼容接口服务器, 让 OpenCode 把 CubeGPT 当模型后端
-  train         真实数据训练 (Rust 编码基准)
+  train         真实数据训练 (Rust 编码基准 / Markdown 内容类型, --dataset)
+  benchmark-multi 多任务真实基准 (Rust + Markdown, 2 真实任务显著超随机)
   test          运行各模块自检
   chat          终端聊天: 与 CubeGPT 对话
 """
@@ -93,12 +94,22 @@ def cmd_train(args):
     from src.data.real_dataset import RustCodingTrainingDataset
     from src.training.trainer import DFTrainer
 
-    dataset = RustCodingTrainingDataset(dim=16)
-    train, val = dataset.generate_dataset(train_ratio=0.75, seed=args.seed)
+    if args.dataset == "md":
+        # Task 2: Markdown 内容类型 — 64 比特 class-token 序列接入可训练嵌入层
+        from src.data.md_text import MarkdownTextDataset
+        dataset = MarkdownTextDataset(dim=16)
+        train, val = dataset.generate_dataset(train_ratio=0.75, seed=args.seed)
+        use_token_input = True
+    else:
+        # Task 1: Rust 编译错误族 (默认)
+        dataset = RustCodingTrainingDataset(dim=16)
+        train, val = dataset.generate_dataset(train_ratio=0.75, seed=args.seed)
+        use_token_input = False
     trainer = DFTrainer(depth=args.depth, dim=16, learning_rate=args.lr,
                         freeze_reservoir_epoch=args.freeze_reservoir_epoch,
                         lr_schedule=args.lr_schedule,
-                        step_drop_epoch=args.step_drop_epoch)
+                        step_drop_epoch=args.step_drop_epoch,
+                        use_token_input=use_token_input)
     summary = trainer.train(train, val, epochs=args.epochs, save_dir=args.save_dir)
     report = trainer.generate_training_report()
     os.makedirs(args.save_dir, exist_ok=True)
@@ -106,6 +117,12 @@ def cmd_train(args):
         f.write(report)
     print(f"\n最佳验证准确率: {summary['best_val_accuracy']:.2%}")
     print(f"随机基线: {dataset.RANDOM_BASELINE:.0%}")
+
+
+def cmd_benchmark_multi(args):
+    """多任务真实基准: 2 真实任务 5 种子 × 5 折 CV, 验证显著超随机基线."""
+    from src.experiments.multi_task_benchmark import main as run_benchmark
+    run_benchmark()
 
 
 def cmd_chat(args):
@@ -169,8 +186,11 @@ def build_parser():
         help="后端模型名 (如 qwen2.5-coder:7b); 缺省读 CUBEGPT_LM_MODEL")
     p_opencode.set_defaults(func=cmd_serve_opencode)
 
-    p_train = sub.add_parser("train", help="真实数据训练 (Rust 编码基准)")
+    p_train = sub.add_parser("train", help="真实数据训练 (Rust 编码基准 / Markdown 内容类型)")
     p_train.add_argument("--depth", type=int, default=1, choices=[0, 1, 2])
+    p_train.add_argument("--dataset", default="rust", choices=["rust", "md"],
+                         help="真实数据集: rust=Rust 编译错误族, md=Markdown 内容类型"
+                              " (经 64 比特 class-token 端到端嵌入)")
     p_train.add_argument("--epochs", type=int, default=10)
     p_train.add_argument("--lr", type=float, default=0.008)
     p_train.add_argument("--seed", type=int, default=42, help="分层划分种子")
@@ -183,6 +203,11 @@ def build_parser():
     p_train.add_argument("--step-drop-epoch", type=int, default=None,
                          help="step 调度 LR 掉落点")
     p_train.set_defaults(func=cmd_train)
+
+    p_bench_multi = sub.add_parser(
+        "benchmark-multi",
+        help="多任务真实基准 (2 真实任务 5 种子 × 5 折 CV, 显著超随机基线)")
+    p_bench_multi.set_defaults(func=cmd_benchmark_multi)
 
     p_chat = sub.add_parser("chat", help="终端聊天: 与 CubeGPT 对话")
     p_chat.add_argument("--depth", type=int, default=2, choices=[0, 1, 2],

@@ -1,5 +1,45 @@
 # 更新日志
 
+## v0.11.0 (2026-09-17)
+
+大幅落地两条路线图主线，并正式开展与 **OmniSpace** 的生态合作。
+
+### 变更
+- **64 比特分类式 token**（`src/codec/class_token.py`）：一个 token 占 64
+  比特，纯文本场景下高 32 比特为 token 组、低 32 比特直接承载 utf8-mb4
+  字符（Unicode codepoint，≤0x10FFFF 覆盖 4 字节/astral/emoji）。设硬性
+  分组：`0x00000000` 保留为 utf8-mb4 字符 token 组，另有 subword / control /
+  保留组常量。提供 `encode / decode / tokenize / char_token / group_of /
+  low_of / embed_tokens` 等完整接口。
+- **CubeGPT 端到端可学习**（`src/training/trainer.py` v5.4+）：新增可训练
+  `TokenEmbedding` 嵌入层——64 比特 class-token 序列经 crc32 哈希映射到
+  可训练矩阵一列，词袋求和 + L2 归一；`PersistentOutputHead.dfeature()`
+  把损失对原始特征的梯度回传到嵌入层，使**学习信号真正回传到输入编码层**，
+  编码与水库一起端到端可学习。`real_dataset.py` 的 `TrainingSample` 新增
+  `token_seq` 字段；`markdown text` 任务（`src/data/md_text.py`）作为第二
+  真实数据集接入。
+- **`src/data/md_text.py`（MarkdownTextDataset）**：第二个真实任务——
+  从仓库真实多字节 utf8-mb4 文档（README / CHANGELOG / 架构 / 兼容性 /
+  贡献 / 发布说明）抽取 5 类内容类型（heading/code/list/table/paragraph），
+  纯真实、无合成。
+- **`src/experiments/multi_task_benchmark.py`（实验 R3）**：5 种子 × 5 折
+  分层 CV 双任务基准，验证"≥2 真实任务显著超随机基线"：
+
+| 任务 | val_acc (折均值±std) | 随机 | 多数类 | 超随机折数 |
+|------|----------------------|------|--------|-----------|
+| Rust 编译错误族 | **76.7%** ±3.7% | 20% | 20% | 25 / 25 |
+| Markdown 内容类型 | **57.7%** ±2.8% | 20% | 41.0% | 25 / 25 |
+
+- **CLI**：`dformer train` 新增 `--dataset {rust,md}`（md 走端到端 token
+  嵌入路径）；新增 `benchmark-multi` 子命令（等价运行实验 R3）。
+- **OmniSpace 生态合作（正式开展）**：详见 README「生态合作」章节。
+- **版本号**：0.10.2 → 0.11.0（pyproject / `__version__` /
+  `pkg.CORE_VERSION` / `min_core_version`）
+
+### 测试
+- 全量测试通过（231 项，含新增 class-token 12 项、md_dataset 6 项、
+  trainer token 端到端 4 项）
+
 ## v0.10.2 (2026-09-17)
 
 修复端到端训练后期漂移（v0.8.2 已知问题）：非平稳水库 + 在线持久输出头

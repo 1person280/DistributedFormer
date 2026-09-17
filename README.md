@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.10.2-orange)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.11.0-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#安全架构宣言--security-architecture-manifesto)
 
 </div>
@@ -90,6 +90,25 @@ flowchart LR
 安全红利：意图在进入执行层之前必须经过独立的监控面。四个安全方向按优先级
 推进（详见下方路线图「安全AI」一节），目标里程碑 **v0.9.0 Safety Shield**。
 
+## 生态合作 · 与 OmniSpace 正式开展合作
+
+DistributedFormer 的脉冲内核（**CubeGPT** + **CuteMamen 插件标准**）已被
+**OmniSpace** 正式采用，作为其本地优先全栈 AI 漫剧创作工作站的**核心推理层**。
+[OmniSpace](https://github.com/Yzw202011/OmniSpace) 是一个"本地优先"的全模态
+AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默认所有推理在本地 GPU
+完成；DistributedFormer 内核为它提供事件驱动的脉冲主模型与插件化调度底座。
+
+两边通过 **CuteMamen 插件标准**达成协作：OmniSpace 直接复用
+`core/`（CubeGPT 脉冲主模型）、`cutemamen/`（插件内核：路由 / 生命周期 /
+三级记忆 / 包格式）、`codec/`（脉冲 / 多模态编解码）与 `training/`（主模型 →
+插件知识迁移读出层），并跟随 v0.11.0 的 64 比特分类式 token 与端到端可学习
+能力演进。内核保持零外部依赖（纯 numpy），宿主侧只消费标准 `.CuteMamen`
+插件包与事件主题，实现真正的"轻量级固定内核 + N 个独立专家插件"架构。
+
+> **数据不含糊**：沿袭本项目"纯真实数据、无合成"硬约束，合作交付的能力——
+> 分类式 token 编码、端到端可学习、多任务真实基准——全部在真实语料上验证
+> （Rust 编译错误族 + 仓库 Markdown 文档多字节文本，均为真实数据）。
+
 ## 快速开始
 
 ### 安装
@@ -114,8 +133,12 @@ dformer serve --tickers AAPL TSLA NVDA --interval 300
 # 使用真实行情 (yfinance)
 dformer serve --realtime --interval 300
 
-# 真实数据训练 (Rust 编码基准, v0.7.5)
-dformer train --depth 1 --epochs 10
+# 真实数据训练 (Rust 编码基准, v0.7.5) / Markdown 内容类型 (v0.11.0)
+dformer train --depth 1 --epochs 10                 # 默认 rust
+dformer train --dataset md --depth 0 --epochs 10    # Markdown, 端到端 token 嵌入
+
+# 多任务真实基准: Rust + Markdown, 5 种子 × 5 折 (实验 R3, v0.11.0)
+dformer benchmark-multi
 
 # 模块自检
 dformer test
@@ -291,10 +314,12 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 恒定调制淹没输入 → 权重配平）后，读出层在合成任务上达 64.8% ± 4.5%
 （5 种子，随机基线 25%）——方法学得到验证；合成任务随即被真实数据取代。
 
-### 真实数据（v0.7.5–今，当前 v0.10.1）
+### 真实数据（v0.7.5–今，当前 v0.11.0）
 
 训练/评估管道 100% 采用真实 Rust 编码基准语料（502 段真实代码 × 5 类
-真实 rustc 错误，随机基线 20%）。准确率轨迹（均为真实数据、5 种子）：
+真实 rustc 错误，随机基线 20%）+ 第二真实任务（Markdown 内容类型，
+仓库真实多字节文档，5 类，随机基线 20%）。准确率轨迹（均为真实数据、
+5 种子的 Rust 任务）：
 
 | 版本 | 变更 | 协议 | 验证准确率 |
 |------|------|------|------------|
@@ -307,6 +332,20 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 | v0.8.6 | 知识迁移：主模型读出层 → Rust 思考插件（分布式架构） | 5 种子 × 5 折，插件路由推理 | **76.7%**（与主模型直评逐折一致）|
 | v0.10.1 | 基准同步 502 段 5 折 CV + 读出层 L2 选优 | 5 种子 × 5 折分层 CV | **76.7%**（种子均值 75.1%–79.1%，25 折全超基线，L2=1e-3）|
 | v0.10.2 | 端到端后期漂移修复（LR 调度/水库冻结） | 端到端监督训练 12 epoch | 见下方复评 |
+| v0.11.0 | **多任务真实基准（实验 R3）+ 端到端可学习** | 5 种子 × 5 折分层 CV × 2 任务 | **Rust 76.7% / Markdown 57.7%** |
+
+v0.11.0 多任务结果（5 种子 × 5 折，实验 R3，见
+[`src/experiments/multi_task_report.md`](src/experiments/multi_task_report.md)）：
+
+| 真实任务 | val_acc（折均值±std） | 随机 | 多数类 | 超随机折数 |
+|----------|----------------------|------|--------|-----------|
+| **Rust 编译错误族**（move/borrow/lifetime/type/ok） | **76.7%** ±3.7% | 20% | 20% | 25 / 25 |
+| **Markdown 内容类型**（heading/code/list/table/paragraph） | **57.7%** ±2.8% | 20% | 41.0% | 25 / 25 |
+
+两个任务均显著超过随机基线（随机 +5pct 判定）——满足"≥2 个真实任务上
+显著超过随机基线"的学习规则改进目标。Markdown 任务经 64 比特 class-token
+嵌入 + `CubeFeatureExtractor` 冻结水库特征 + 线性读出得到 57.7%，端到端
+token 训练同样在真实 MD 语料上稳定超随机（见 `test_token_training_beats_random_on_md`）。
 
 v0.10.2 端到端复评（502 段，12 epoch，深度1/2）：baseline（constant）仍
 出现后期崩落（seed1 末期跌至 44–51%）；默认 **cosine** 调度完全消除崩落，
@@ -345,10 +384,11 @@ v0.8.4 的 25 次折评估全部超过随机基线（20%）；扩语料后读出
   编译失败样本), 每条附真实 rustc 错误码与报错信息, 见
   [`src/data/rust_coding.py`](src/data/rust_coding.py)
 * **输入模态**: text (代码原文, 代码感知分词) + numeric (静态扫描特征)
-* **结果 (当前, v0.10.1)**: CubeGPT 冻结水库 + 线性读出层, 5 种子 × 5 折
+* **结果 (当前, v0.11.0)**: CubeGPT 冻结水库 + 线性读出层, 5 种子 × 5 折
   分层 CV **76.7%** (种子均值 75.1%–79.1%, 25 折全超随机基线 20%,
-  L2=1e-3), 见
+  L2=1e-3); v0.11.0 起纳入实验 R3 多任务基准, 见
   [`src/experiments/rust_report.md`](src/experiments/rust_report.md)
+  与 [multi_task_report.md](src/experiments/multi_task_report.md)
   * 历史 (v0.6.0, 100 段单次 75/25): **57.6% ± 10.3%**; 各类别种子均值
     借用冲突 76% / 生命周期 88% / 所有权移动 48% / 类型不匹配 44% /
     合法代码 32%
@@ -449,11 +489,21 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
   100 段单次 75/25 升级为 **502 段 × 5 折分层 CV**（消除脚本/结果与 README
   的脱节）；读出层 L2 网格选优确认 1e-3 最优；复测 25 折 **76.7%**
   （种子均值 75.1%–79.1%），与 v0.8.6 插件知识迁移逐折一致
-- [ ] 分类式 token：一个 token 占 64 比特数据，纯文本场景下前 32 比特为
+- [x] v0.11.0 — **端到端可学习 + 分类式 token + 多任务真实基准**：64 比特
+  分类式 token codec（高 32 位分组、低 32 位 utf8-mb4 字符，`0x00000000`
+  保留为字符组）；可训练 `TokenEmbedding` 使学习信号回传到输入编码层，
+  CubeGPT 在真实数据上端到端可学习；第二真实数据集（Markdown 内容类型，
+  5 类）接入，5 种子 × 5 折双任务基准验证——**Rust 76.7% / Markdown
+  57.7%，两任务 25/25 折均显著超随机基线 20%**；正式开展与
+  [OmniSpace](https://github.com/Yzw202011/OmniSpace) 的生态合作
+- [x] 分类式 token：一个 token 占 64 比特数据，纯文本场景下前 32 比特为
   token 组、后 32 比特直接为 utf8-mb4 字符；设硬性分组，如
   `0x00000000xxxxxxxx` 保留为 utf8-mb4 字符 token 组
-- [ ] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路, RustCodingPlugin 导出 X/y）
-- [ ] 学习规则改进：目标是在 ≥2 个真实任务上显著超过随机基线
+  **✅ 已完成（v0.11.0）**，见 [`src/codec/class_token.py`](src/codec/class_token.py)
+- [x] CubeGPT 端到端可学习：在真实数据集上端到端训练（Rust 基准已提供数据通路, RustCodingPlugin 导出 X/y）
+  **✅ 已完成（v0.11.0）**：`TokenEmbedding` 嵌入层 + `PersistentOutputHead.dfeature()` 梯度回传，端到端可学习
+- [x] 学习规则改进：目标是在 ≥2 个真实任务上显著超过随机基线
+  **✅ 已完成（v0.11.0）**：实验 R3 双任务（Rust 76.7% / Markdown 57.7%）25/25 折全超随机 20%
 
 ### ~~准确率瓶颈解决方案（36% 瓶颈，v0.7.5 诊断结论）~~ ✅ 已完成（v0.8.4）
 
@@ -520,7 +570,7 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
    支持安全事件完整复盘溯源，满足强监管行业的合规审计需求
    （`src/security_monitor/action_tracer.py`）
 
-### 已知问题（v0.10.2 状态）
+### 已知问题（v0.11.0 状态）
 
 * ~~KV 堆注意力未接入主计算路径~~ **已修复（v0.5.0）**：`KVStack.retrieve()` 现为
   FractalLayer / 输入端口 / 输出头的真实注意力来源，记忆影响网络动力学；
@@ -572,12 +622,12 @@ DistributedFormer/
 │   ├── codec/                   # 数值·文本·时序 → 脉冲编码; 脉冲 → 动作解码
 │   ├── agents/                  # 5 类脉冲智能体
 │   ├── workflow/                # 工作流引擎 + 消息路由
-│   ├── data/                    # 真实数据集: Rust 编码基准 (502 段)
+│   ├── data/                    # 真实数据集: Rust 编码基准 (502 段) / Markdown 内容类型
 │   ├── training/                # 监督/STDP 训练器 + 读出层验证协议
 │   ├── deployment/              # Docker / K8s / Redis / Prometheus / RedisKVStack (分布式 KV 后端)
 │   ├── security_monitor/        # 运行时安全监控 (意图探针 / 熔断 / 行为指纹 / 审计溯源)
 │   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
-│   ├── tests/                   # pytest 测试 (203 项)
+│   ├── tests/                   # pytest 测试 (231 项)
 │   ├── experiments/             # 实验脚本、结果与报告 (读出层验证 / 分布式架构评估)
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件

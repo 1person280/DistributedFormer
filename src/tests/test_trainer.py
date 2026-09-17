@@ -84,3 +84,47 @@ def test_freeze_flag_applied_in_schedule():
     assert not t.reservoir_frozen
     t._apply_schedule(3, 12)
     assert t.reservoir_frozen
+
+
+# ── v0.11.0: 端到端可学习 (可训练分类式 token 嵌入层) ──────────
+def test_token_input_off_by_default():
+    t = _small_trainer()
+    assert not t.use_token_input
+    assert t.token_emb is None
+
+
+def test_token_forward_injects_embedding_block():
+    t = _small_trainer(use_token_input=True)
+    from src.data.real_dataset import RustCodingTrainingDataset
+    ds = RustCodingTrainingDataset(dim=16)
+    train, _ = ds.generate_dataset(train_ratio=0.75, seed=0)
+    sample = train[0]
+    assert sample.token_seq and sample.token_seq[0] is not None
+    feats_no_tok = t._forward_features(t._sample_inputs(sample))[0]
+    feats_tok, _ = t._forward_features(t._sample_inputs(sample),
+                                       t._tokens_of(sample))
+    # 嵌入块恒定前置, 特征维度 = 水库特征 + token_hid
+    assert len(feats_no_tok) + t.token_hid == len(feats_tok)
+    assert t.token_emb is not None
+
+
+def test_token_empty_seq_stable_dim():
+    t = _small_trainer(use_token_input=True)
+    feats_empty, _ = t._forward_features({"numeric": np.zeros(16)}, [])
+    t2 = _small_trainer(use_token_input=True)
+    feats_filled, _ = t2._forward_features({"numeric": np.zeros(16)},
+                                           [ord("a"), ord("中")])
+    assert len(feats_empty) == len(feats_filled)
+
+
+def test_token_training_beats_random_on_md():
+    """端到端 token 训练在真实 MD 任务上应显著超随机基线 (≥ +5pct)"""
+    from src.data.md_text import MarkdownTextDataset
+    md = MarkdownTextDataset(dim=16)
+    train, val = md.generate_dataset(train_ratio=0.75, seed=3)
+    t = _small_trainer(use_token_input=True)
+    for _ in range(3):
+        t.train_epoch(train)
+    val_acc = t.evaluate(val)["accuracy"]
+    assert val_acc > md.RANDOM_BASELINE + 0.05
+    assert len(t.df._all_units) > 0

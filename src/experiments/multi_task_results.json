@@ -1,0 +1,190 @@
+{
+  "experiment": "R3_multi_task_benchmark",
+  "version": "0.11.0",
+  "protocol": "stratified_5fold_cv",
+  "date": "2026-09-17",
+  "n_seeds": 5,
+  "n_folds": 5,
+  "tasks": [
+    {
+      "task": "Rust 编译错误族",
+      "best_l2": 0.001,
+      "random_baseline": 0.2,
+      "majority_baseline": 0.2,
+      "val_acc_mean": 0.7665882352941176,
+      "val_acc_std": 0.037206408066760455,
+      "val_acc_min": 0.6862745098039216,
+      "val_acc_max": 0.86,
+      "seed_means": [
+        0.7908627450980392,
+        0.7729411764705882,
+        0.7512549019607844,
+        0.7649411764705883,
+        0.7529411764705882
+      ],
+      "seed_mean_min": 0.7512549019607844,
+      "seed_mean_max": 0.7908627450980392,
+      "train_acc_mean": 0.9712154228855722,
+      "beats_random_all_seeds": true,
+      "folds_beat_random": 25,
+      "total_folds": 25,
+      "results": [
+        {
+          "seed": 0,
+          "train_accuracy": 0.9631492537313433,
+          "val_accuracy": 0.7908627450980392,
+          "val_acc_per_fold": [
+            0.7843137254901961,
+            0.78,
+            0.76,
+            0.77,
+            0.86
+          ],
+          "beats_random": true
+        },
+        {
+          "seed": 1,
+          "train_accuracy": 0.9701144278606966,
+          "val_accuracy": 0.7729411764705882,
+          "val_acc_per_fold": [
+            0.7647058823529411,
+            0.78,
+            0.79,
+            0.76,
+            0.77
+          ],
+          "beats_random": true
+        },
+        {
+          "seed": 2,
+          "train_accuracy": 0.9691169154228856,
+          "val_accuracy": 0.7512549019607844,
+          "val_acc_per_fold": [
+            0.6862745098039216,
+            0.81,
+            0.78,
+            0.79,
+            0.69
+          ],
+          "beats_random": true
+        },
+        {
+          "seed": 3,
+          "train_accuracy": 0.9880497512437809,
+          "val_accuracy": 0.7649411764705883,
+          "val_acc_per_fold": [
+            0.7647058823529411,
+            0.74,
+            0.75,
+            0.77,
+            0.8
+          ],
+          "beats_random": true
+        },
+        {
+          "seed": 4,
+          "train_accuracy": 0.9656467661691543,
+          "val_accuracy": 0.7529411764705882,
+          "val_acc_per_fold": [
+            0.7647058823529411,
+            0.79,
+            0.71,
+            0.79,
+            0.71
+          ],
+          "beats_random": true
+        }
+      ]
+    },
+    {
+      "task": "Markdown 内容类型",
+      "best_l2": 0.001,
+      "random_baseline": 0.2,
+      "majority_baseline": 0.41049913941480204,
+      "val_acc_mean": 0.5769011689863143,
+      "val_acc_std": 0.02782578523249803,
+      "val_acc_min": 0.506896551724138,
+      "val_acc_max": 0.6344827586206897,
+      "seed_means": [
+        0.5911401284256652,
+        0.5627983284995026,
+        0.5917495780138357,
+        0.5600538304413645,
+        0.5787639795512034
+      ],
+      "seed_mean_min": 0.5600538304413645,
+      "seed_mean_max": 0.5917495780138357,
+      "train_acc_mean": 0.7352241487563684,
+      "beats_random_all_seeds": true,
+      "folds_beat_random": 25,
+      "total_folds": 25,
+      "results": [
+        {
+          "seed": 0,
+          "train_accuracy": 0.7378074671415653,
+          "val_accuracy": 0.5911401284256652,
+          "val_acc_per_fold": [
+            0.5767918088737202,
+            0.5582191780821918,
+            0.6137931034482759,
+            0.6068965517241379,
+            0.6
+          ],
+          "beats_random": true
+        },
+        {
+          "seed": 1,
+          "train_accuracy": 0.723193631069302,
+          "val_accuracy": 0.5627983284995026,
+          "val_acc_per_fold": [
+            0.6040955631399317,
+            0.565068493150685,
+            0.5896551724137931,
+            0.506896551724138,
+            0.5482758620689655
+          ],
+          "beats_random": true
+        },
+        {
+          "seed": 2,
+          "train_accuracy": 0.7446748639133102,
+          "val_accuracy": 0.5917495780138357,
+          "val_acc_per_fold": [
+            0.590443686006826,
+            0.5958904109589042,
+            0.6344827586206897,
+            0.5724137931034483,
+            0.5655172413793104
+          ],
+          "beats_random": true
+        },
+        {
+          "seed": 3,
+          "train_accuracy": 0.7316099293923094,
+          "val_accuracy": 0.5600538304413645,
+          "val_acc_per_fold": [
+            0.5972696245733788,
+            0.565068493150685,
+            0.5344827586206896,
+            0.5448275862068965,
+            0.5586206896551724
+          ],
+          "beats_random": true
+        },
+        {
+          "seed": 4,
+          "train_accuracy": 0.7388348522653555,
+          "val_accuracy": 0.5787639795512034,
+          "val_acc_per_fold": [
+            0.5563139931740614,
+            0.5616438356164384,
+            0.5758620689655173,
+            0.6,
+            0.6
+          ],
+          "beats_random": true
+        }
+      ]
+    }
+  ]
+}
