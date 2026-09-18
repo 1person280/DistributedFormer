@@ -1,4 +1,4 @@
-﻿"""CuteMamen 插件包 (.CuteMamen) 格式: 存档 / 加载 / manifest 解码器
+"""CuteMamen 插件包 (.CuteMamen) 格式: 存档 / 加载 / manifest 解码器
 
 包格式 (规范 §3, 单个 tar.gz):
 

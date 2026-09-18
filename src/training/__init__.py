@@ -1,4 +1,4 @@
-﻿"""training — 训练与验证协议 (知识的源头)
+"""training — 训练与验证协议 (知识的源头)
 
     readout.py            训练方法学验证 (reservoir computing 范式):
                           冻结 CubeGPT 水库特征 + 线性 softmax 读出层;

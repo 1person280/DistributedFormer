@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """真实时序异常检测训练测试 (v0.13.1, P0 立项)
 
 覆盖 OperationalMetricsDataset 的真实时序数据通路 (窗口化 / 二元标签 /
