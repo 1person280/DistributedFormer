@@ -11,12 +11,53 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.13.1-orange)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.14.2-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#外部动作)
 
 </div>
 
 ---
+
+## 对比一览 · 与同行 Transformer / 脉冲框架
+
+明晃晃的定位：DistributedFormer 走的是 **16 参数脉冲神经元 + 事件驱动异步传播 + 持久工作记忆**的
+轻量在线路线。下表和行内稠密 **Transformer** 大模型（GPT-2 / GPT-4o / Llama 等），以及同为
+脉冲/事件驱动的研究框架 **snnTorch / Norse / Lava** 放在同一张能力表里对照。能力维度均为
+公开可核验事实或本仓库架构事实，不做夸大。
+
+| 对比维度 | **DistributedFormer · CubeGPT** | 通用 Transformer / GPT 系 | snnTorch / Norse（PyTorch SNN 库） | Lava（Intel 神经形态） |
+|---|---|---|---|---|
+| 定位 | 事件驱动脉冲**智能体框架**（内置模型 + 插件标准 + 安全监控） | 通用稠密大模型（GPT-2 / GPT-4o / Llama 等） | 深度学习 **SNN 研究库** | 神经形态**软硬件协同框架** |
+| 基本单元 | 每个脉冲神经元恰好 **16 个标量参数** | token 稠密注意力块，参数量巨大 | LIF 等脉冲神经元 + 反向传播 | 片上可编程神经形态单元 |
+| 事件驱动异步计算 | ✅ 原生 | ❌ 稠密逐 token 前向 | 🔶 帧/批驱动为主（可表示事件） | ✅ 原生（Loihi 2） |
+| 持久工作记忆 | ✅ KV 堆工作记忆 | ❌ 固定上下文窗口 | — | 🔶 片上持续学习 |
+| 内嵌模型规模 | 内置 **CubeGPT ~281K 参数** | GPT 系百万到千亿级 | 无内置（自行搭建网络） | 无内置（自行搭建） |
+| 默认运行环境 | 纯 **numpy**，CPU 可跑，零外部依赖 | 需 **GPU / 云端** | 依赖 **PyTorch + GPU** | 依赖 PyTorch + 专用 Loihi 硬件 |
+| 插件热加载 | ✅ CuteMamen 固定内核 + N 专家插件 | ❌ | — | 🔶 lava-dl 扩展层 |
+| 内置安全监控（意图‑动作解耦） | ✅ 独立运行时监控面 | ❌ 黑盒 | — | — |
+| 持续在线学习 | ✅ 真实时序流在线学习（终期零漂移 97.2%） | 🔶 受上下文/重算限制 | 🔶 离线梯度为主 | ✅ 片上持续学习 |
+
+> 一句话：**Transformer 用算力换通用，SNN 框架给你搭建积木；DistributedFormer 自带一个
+> 281K、CPU 可跑、事件驱动、带工作记忆与监控的内嵌模型，开箱即是一个在线智能体。**
+
+### 实测基准对比（纯真实数据 · 5 种子 × 5 折分层 CV）
+
+> **数据不含糊原则**：下表只放本仓库实测或可核验真实数据。四个真实语料/任务目前
+> **没有同行采用完全相同的协议公开可比数字**，因此"同行对标"列如实标注，**不填入任何
+> 非实测精度**。
+
+| 任务（真实材料） | CubeGPT 实测 | 随机基线 | 同行 Transformer/脉冲框架对标 |
+|---|---|---|---|
+| Rust 编译错误族（502 段真实代码 · 5 类） | **76.7%** ± 3.7% | 20% | 同协议同行实测未公开（—） |
+| Markdown 内容类型（仓库真实文档 · 5 类） | **58.3%** ± 2.8% | 20% | 同协议同行实测未公开（—） |
+| 视频运动识别（真实运镜曲线 · 10 类） | **61.7%** ± 9.8% | 10% | 同协议同行实测未公开（—） |
+| 真实时序异常检测（NAB 运维指标 · 窗口级 2 类） | ACC **48.5%** ± 11.0% / 检出率 **48.9%** ± 14.8% | 50% / 0% | 与本仓库"窗口级二元"协议不等价，不并列（—） |
+
+> 同行 Transformer 与 snnTorch / Norse / Lava 在**相同真实语料、前后端一致的协议**下的公开
+> 实测，正是本项目后续可补充的"硬对比"；欢迎以**可核验真实数据**的形式补充同行基准（PR）。
+
+> **版本命名彩蛋**：`v0.14.0 —— 向祖传代码开炮` 致敬手游**《向僵尸开炮》**——祖传/遗留代码
+> 就是这一版要"消灭的僵尸"，纯命名玩梗，不影响版本语义。
 
 ## 这是什么与快速开始
 
