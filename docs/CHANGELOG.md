@@ -1,5 +1,21 @@
 ﻿# 更新日志
 
+## v0.14.3 植物大战僵尸2 (2026-09-18)
+
+README 菜单新增「植物大战 VS Code 代码僵尸」：10 张植物卡（道射豌豆 / 坚果墙 /
+樱桃炸弹 / 暑光蓝莓 等）映射到 RustCoding / JavaCoding / Security Monitor /
+CuteMamen / OpMetrics / 在线持续学习 等真实能力，专打 VS Code 里的"代码僵尸"
+（祖传代码 / 编译错误 / 告警风暴 / 文档注水 / 潜伏 bug）。纯命名玩梗，延续
+`v0.14.0 —— 向祖传代码开炮` 的致敬彩蛋。纯文档 + 版本号变更。
+
+### 变更
+- **README 菜单**：新增「菜单 · 植物大战 VS Code 代码僵尸」植物卡表（10 卡）。
+- **版本号**：0.14.2 → 0.14.3（pyproject / `__version__` / `pkg.CORE_VERSION` /
+  `min_core_version`）。
+
+### 测试
+- 全量测试应保持通过（纯文档 + 版本号变更，无行为改动）。
+
 ## v0.14.2 (2026-09-18)
 
 README"国际化"：开篇挂上游对比表——与同行 **Transformer / GPT 系**（GPT-2 / GPT-4o /
