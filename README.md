@@ -106,6 +106,7 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 | 插件名字 | 额外参数量 | 插件精度 |
 |---|---|---|
 | RustCodingPlugin | 4,149 | float64 |
+| JavaCodingPlugin | 6,019 | float64 |
 | VideoMakingPlugin | 3,658 | float64 |
 | OperationalMetricsDataset | 2,370 | float64 |
 
@@ -114,10 +115,11 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 | 擅长领域 | 真实数据来源 | 规模与标签 | 准确率 | 准确率评估 |
 |---|---|---|---|---|
 | Rust 编译错误分类 | 真实风格 Rust 代码 + 真实 rustc 错误码 | 502 段 × 5 类（move/borrow/lifetime/type/ok）| **76.7%** ± 3.7% | 5 种子 × 5 折，种子均值 75.1–79.1%，超随机 20%（25/25 折）|
+| Java 祖传代码静态问题 | 真实风格 Java 代码 + 真实 javac/静态分析诊断 | 294 段 × 8 类（null/rawtype/deprecated/generic/type/symbol/override/ok）| **58.2%** | 5 种子 × 5 折，超随机 12.5%（约 4.7 倍），vs 原型基线 56.5%；交付 `plugin/JavaCoding.CuteMamen`（迁移知识）|
 | 视频镜头运动识别 | 真实运镜 / 分镜惯例曲线 | 10 类 × 20 点 = 200 样本 | **61.7%** ± 9.8% | 5 种子 × 5 折，种子均值 56.0–67.0%，超随机 10%（25/25 折）|
 | 时序异常检测（窗口级）| NAB 真实运维指标（real* 系列，官方告警标注）| 2720 滑窗 × 2 类（异常 2.6%）| ACC **48.5%** ± 11.0% / 检出率 **48.9%** ± 14.8% | 5 种子 × 5 折（异常类梯度=10），超随机 50%（9/25 折，多数类 97.4% 下如实偏低）|
 
-数据集定义见 `src/data/`（`rust_coding.py` / `video_motion.py` /
+数据集定义见 `src/data/`（`rust_coding.py` / `java_coding.py` / `video_motion.py` /
 `metrics_time_series.py`），插件用法见 [docs/CUTEMAMEN.md](docs/CUTEMAMEN.md)。
 
 ## 路线图
@@ -144,11 +146,11 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 DistributedFormer/
 ├── src/                        # Python 包 (v0.8.6 扁平化)
 │   ├── core/                    # 脉冲单元 / 分形层 / KV 堆 / CubeGPT / 模态面 pkg
-│   ├── cutemamen/               # CuteMamen 插件标准: 内核 / 插件 / 事件总线 / 包格式 / LoRA 桥接 / 迁移工具 / Rust coding 插件
+│   ├── cutemamen/               # CuteMamen 插件标准: 内核 / 插件 / 事件总线 / 包格式 / LoRA 桥接 / 迁移工具 / Rust·Java coding 插件
 │   ├── codec/                   # 数值·文本·时序 → 脉冲编码; 脉冲 → 动作解码
 │   ├── agents/                  # 5 类脉冲智能体
 │   ├── workflow/                # 工作流引擎 + 消息路由
-│   ├── data/                    # 真实数据集: Rust 编码基准 / Markdown / 视频运镜 / 时序异常 (v0.13.1)
+│   ├── data/                    # 真实数据集: Rust·Java 编码基准 / Markdown / 视频运镜 / 时序异常 (v0.14.0)
 │   ├── training/                # 监督/STDP 训练器 + 读出层验证协议
 │   ├── deployment/              # Docker / K8s / Redis / Prometheus / RedisKVStack / openai_server / web_ui
 │   ├── security_monitor/        # 运行时安全监控 (意图探针 / 熔断 / 行为指纹 / 审计溯源)

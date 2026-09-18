@@ -804,3 +804,115 @@ def test_shipped_pkg_carries_migrated_knowledge():
     assert m["knowledge_source"] == "main-model-readout"
     assert m["readout"]["n_features"] > 0
     assert m["corpus_size"] == 502
+
+
+# ═══════════════════════════════════════════════════════════
+# 13. JavaCoding 插件 (v0.14.0): 进军祖传代码 (类比 Rust)
+# ═══════════════════════════════════════════════════════════
+
+from src.data.java_coding import LABELS as JAVA_LABELS  # noqa: E402
+
+_JAVA_CODE = "List x = new ArrayList();\nx.add(\"a\");\nString s = x.get(0);"
+
+
+def test_java_plugin_prototype_fallback(kernel):
+    """JavaCoding 未迁移时: 语料原型最邻近质心分类 (source=corpus-prototypes)"""
+    from src.cutemamen import JavaCodingPlugin
+    plugin = JavaCodingPlugin("java-coding")
+    assert plugin.corpus_size() == 294
+    out = plugin.on_think({"topic": "java", "data": _JAVA_CODE}, None)
+    assert out["source"] == "corpus-prototypes"
+    assert out["label"] in JAVA_LABELS
+    assert out["confidence"] > 0
+
+
+def test_java_plugin_routes_and_event(kernel):
+    """route=java, 广播 java.classified"""
+    from src.cutemamen import JavaCodingPlugin
+    plugin = JavaCodingPlugin("java-coding")
+    seen = []
+    kernel.mount(plugin)
+    kernel.bus.subscribe("java.classified", lambda e: seen.append(e))
+    out = kernel.think({"topic": "java", "data": _JAVA_CODE})
+    assert out and out[0]["label"] in JAVA_LABELS
+    assert out[0]["confidence"] > 0
+    assert seen and seen[0]["topic"] == "java.classified"
+
+
+def test_java_plugin_pkg_roundtrip(tmp_path):
+    """JavaCoding .CuteMamen → 按 base_model 热加载往返 (整体 8 类)"""
+    from src.cutemamen import JavaCodingPlugin, load_pkg, save_pkg
+    plugin = JavaCodingPlugin("java-coding")
+    pkg = str(tmp_path / "java_coding.CuteMamen")
+    save_pkg(plugin, pkg)
+    loaded, manifest = load_pkg(pkg)
+    assert manifest["base_model"] == "java.coding"
+    assert isinstance(loaded, JavaCodingPlugin)
+    assert loaded.corpus_size() == 294
+    assert len(loaded.stats()["labels"]) == 8
+    out = loaded.on_think({"topic": "java", "data": _JAVA_CODE}, None)
+    assert out["label"] in JAVA_LABELS
+
+
+def _small_java_train_samples(n_per_class: int = 3):
+    """真实语料小子集 (每类 n 段), 供迁移测试快速运行"""
+    from src.data.real_dataset import JavaCodingTrainingDataset
+    dataset = JavaCodingTrainingDataset(dim=16)
+    train, _ = dataset.generate_dataset(train_ratio=0.98, seed=1)
+    picked, seen = [], {}
+    for s in train:
+        c = s.category
+        if seen.get(c, 0) < n_per_class:
+            picked.append(s)
+            seen[c] = seen.get(c, 0) + 1
+    return picked
+
+
+def test_java_migrate_determinism(kernel):
+    """主模型知识迁移后读出层优先, 且同 seed 逐位可复现"""
+    from src.cutemamen import JavaCodingPlugin
+    plugin = JavaCodingPlugin("java-coding")
+    kernel.mount(plugin)
+    before = kernel.think({"topic": "java", "data": _JAVA_CODE})[0]
+    assert before["source"] == "corpus-prototypes"  # 未迁移: 原型回退
+
+    plugin.migrate_from_main_model(_small_java_train_samples(), seed=0)
+    after = kernel.think({"topic": "java", "data": _JAVA_CODE})[0]
+    assert after["source"] == "main-model-readout"
+    assert after["label"] in JAVA_LABELS
+    assert plugin.memory.recall("knowledge_source") == "main-model-readout"
+
+    plugin2 = JavaCodingPlugin("java-coding")
+    plugin2.migrate_from_main_model(_small_java_train_samples(), seed=0)
+    again = plugin2.on_think({"topic": "java", "data": _JAVA_CODE}, None)
+    assert again["label"] == after["label"]
+    assert abs(again["confidence"] - after["confidence"]) < 1e-12
+
+
+def test_java_shipped_pkg_routed_by_cubegpt():
+    """CubeGPT 路由到仓库交付的 plugin/JavaCoding.CuteMamen"""
+    from src.cutemamen import JavaCodingPlugin
+    pkg = os.path.join(_REPO_PLUGIN_DIR, "JavaCoding.CuteMamen")
+    assert os.path.isfile(pkg), "plugin/JavaCoding.CuteMamen 必须独立交付"
+
+    np.random.seed(31)
+    gpt = CubeGPTKernel(depth=1, dim=16, modalities=["numeric"])
+    found = gpt.discover_plugins(_REPO_PLUGIN_DIR)
+    assert found["java-coding"]["route"] == "java"
+    assert "java-coding" not in gpt.plugins  # 注册未加载 (随用随载)
+
+    out = gpt.think({"topic": "java", "data": _JAVA_CODE})
+    assert out and out[0]["label"] in JAVA_LABELS
+    assert isinstance(gpt.plugins["java-coding"], JavaCodingPlugin)
+    spikes = gpt.step({"numeric": 1.0})
+    assert isinstance(spikes, list)
+
+
+def test_java_shipped_pkg_carries_migrated_knowledge():
+    """仓库交付的 plugin/JavaCoding.CuteMamen 携带主模型迁移知识"""
+    from src.cutemamen import read_manifest
+    m = read_manifest(os.path.join(_REPO_PLUGIN_DIR, "JavaCoding.CuteMamen"))
+    assert m["knowledge_source"] == "main-model-readout"
+    assert m["readout"]["n_features"] > 0
+    assert m["readout"]["n_classes"] == 8
+    assert m["corpus_size"] == 294

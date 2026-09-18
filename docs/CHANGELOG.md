@@ -1,5 +1,35 @@
 ﻿# 更新日志
 
+## v0.14.0 (2026-09-18)
+
+Java coding 思考插件（`JavaCoding.CuteMamen`）落地——类比 RustCoding 插件
+"进军祖传代码"：静态识别一段 Java 代码命中的静态问题族；纯真实数据、沿用
+主模型迁移（水库读出层）评估协议（无合成路径）。
+
+### 变更
+- **真实 Java 语料**（`src/data/java_coding.py`）：294 段真实风格 Java 代码 ×
+  8 类静态问题族（null / rawtype / deprecated / generic / type / symbol /
+  override / ok），每段带真实 javac/静态分析诊断摘要；提供 `static_metrics`
+  （10 维）+ `structure_metrics`（6 维）与 `stratified_split/kfold`。
+- **数据集**（`real_dataset.JavaCodingTrainingDataset`）：与 Rust 同构——
+  双模态注入（numeric=16 维 + text=代码原文）→ 冻结 CubeGPT 水库特征 →
+  线性读出层；8 分类，随机基线 12.5%。
+- **插件**（`cutemamen/java_coding.py`，`JavaCodingPlugin`）：route=`java`，
+  `on_think` 分类到 8 类之一并广播 `java.classified`；支持
+  `migrate_from_main_model()` 主模型迁移与 `.CuteMamen` 存档往返；
+  按 `base_model=java.coding` 注册进内核 registry（随用随载）。
+- **交付包**：`plugin/JavaCoding.CuteMamen`（47 KB，携带主模型迁移知识，
+  `knowledge_source=main-model-readout`，n_classes=8，corpus_size=294）。
+- **评估（5 种子 × 5 折，训练/`build_java_plugin.py`）**：插件（主模型迁移）
+  **58.2%** vs 原型基线 56.5%，随机 12.5%、多数类 14.5%（约随机 4.7 倍）。
+- **版本号**：0.13.1 → 0.14.0（pyproject / `__version__` /
+  `pkg.CORE_VERSION` / `min_core_version`）
+
+### 测试
+- 全量测试通过（**257 项**），新增 6 项 JavaCoding 测试（原型回退 / 路由与
+  `java.classified` 事件 / 包往返 / 迁移确定性 / CubeGPT 路由交付包 / 交付包
+  携带迁移知识）。
+
 ## v0.13.1 (2026-09-18)
 
 真实时序异常检测（P0 立项）落地——为公司首个**非分类**真实时序基准，

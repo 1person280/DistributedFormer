@@ -127,7 +127,7 @@ CLI 新增 --dataset ts / benchmark-anomaly / benchmark-stream; LinearReadout �
 可选类别权重; benchmark-all 扩展为四真实任务。
 """
 
-__version__ = "0.13.1"
+__version__ = "0.14.0"
 
 # ── 仓库内零 __pycache__ (v0.8.7) ────────────────────────────
 # 在导入任何子模块前关闭字节码落地, 使直接运行 (python -m src /
@@ -167,7 +167,8 @@ __all__ = [
 
 _CUTEMAMEN_EXPORTS = {
     "CuteMamenKernel", "CubeGPTKernel", "ExpertPlugin", "FacePlugin",
-    "RustCodingPlugin", "LoRABridgePlugin", "LoRAAdapter", "EventBus",
+    "RustCodingPlugin", "JavaCodingPlugin", "LoRABridgePlugin",
+    "LoRAAdapter", "EventBus",
     "ExpertPlugin", "PluginMemory", "PluginContext", "save_pkg", "load_pkg",
     "read_manifest", "decode_manifest", "apply_lora", "lora_from_weight",
     "migrate_main",

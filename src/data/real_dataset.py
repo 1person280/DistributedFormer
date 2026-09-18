@@ -43,6 +43,12 @@ from src.data.rust_coding import (
     LABELS, LABEL_NAMES, load_rust_coding, static_metrics,
     structure_metrics, stratified_split, stratified_kfold
 )
+from src.data.java_coding import (
+    LABELS as JAVA_LABELS,
+    load_java_coding as _load_java,
+    static_metrics as _java_static,
+    structure_metrics as _java_structure,
+)
 
 
 @dataclass
@@ -188,6 +194,111 @@ class RustCodingTrainingDataset:
 
     def majority_baseline(self, samples: List[TrainingSample]) -> float:
         """多数类基线: 训练集最大类别占比"""
+        if not samples:
+            return 0.0
+        dist = self.get_class_distribution(samples)
+        return max(dist.values()) / len(samples)
+
+
+class JavaCodingTrainingDataset:
+    """真实 Java 祖传代码基准训练数据集 (纯真实, 无合成样本, v0.14.0)
+
+    类别 (8 类真实静态问题族):
+      0: null       空指针风险      NPE
+      1: rawtype    泛型裸类型      raw type / 未受检转换
+      2: deprecated 过时 API 用法    @Deprecated
+      3: generic    泛型错误        类型实参不兼容
+      4: type       类型不匹配      incompatible types
+      5: symbol     找不到符号      cannot find symbol
+      6: override   重写/方法签名不匹配
+      7: ok         合法代码 (可编译)
+
+    与 RustCodingTrainingDataset 同构: 真实语料 → 双模态注入
+    (numeric=static+structure 16 维, text=代码原文) → 主模型水库特征
+    → 线性读出层。目标输出模式维度 0-6 为错误类, 维度 7 为 ok。
+    """
+
+    CATEGORIES = list(JAVA_LABELS)
+    N_CLASSES = len(JAVA_LABELS)          # 8
+    RANDOM_BASELINE = 1.0 / len(JAVA_LABELS)  # 12.5%
+
+    # 错误类更醒目 (0.7), 合法代码温和 (0.5)
+    _TARGET_STRENGTH = {i: 0.7 for i in range(7)} | {7: 0.5}
+
+    def __init__(self, dim: int = 16):
+        self.dim = dim
+        self.encoder = SpikeEncoder(dim=dim)
+        self._corpus = _load_java()          # 真实语料, 294 段
+        self._static_max = None
+
+    def _make_target_pattern(self, category: int) -> np.ndarray:
+        pattern = np.ones(self.dim) * 0.05
+        pattern[category] = self._TARGET_STRENGTH.get(category, 0.6)
+        if category < self.N_CLASSES - 1:   # 错误类伴随相邻维度微弱联动
+            pattern[(category + 1) % self.N_CLASSES] = 0.15
+        return np.clip(pattern, 0.0, 1.0)
+
+    def _to_sample(self, s: Dict, idx: int) -> TrainingSample:
+        code = s["code"]
+        raw_static = np.concatenate([
+            _java_static(code), _java_structure(code)])
+        return TrainingSample(
+            sample_id=f"{s['label_name']}_{idx:03d}",
+            category=s["label"],
+            category_name=s["label_name"],
+            input_signal=self.encoder.encode_text(code),
+            target_pattern=self._make_target_pattern(s["label"]),
+            metadata={
+                "code": code,
+                "javac": s["javac"],
+                "msg": s["msg"],
+                "code_len": len(code),
+            },
+            static_signal=self._normalize_static(raw_static),
+            token_seq=_token_encode(code),
+        )
+
+    def _normalize_static(self, raw: np.ndarray) -> np.ndarray:
+        if self._static_max is None:
+            stacked = np.stack([
+                np.concatenate([_java_static(s["code"]),
+                                _java_structure(s["code"])])
+                for s in self._corpus])
+            self._static_max = stacked.max(axis=0)
+        return np.clip(raw / np.maximum(self._static_max, 1e-8), 0.0, 1.0)
+
+    def generate_dataset(self, train_ratio: float = 0.75,
+                         seed: int = 0) -> Tuple[List[TrainingSample],
+                                                 List[TrainingSample]]:
+        train_raw, val_raw = stratified_split(
+            self._corpus, train_ratio=train_ratio, seed=seed)
+        index_of = {id(s): i for i, s in enumerate(self._corpus)}
+        train = [self._to_sample(s, index_of[id(s)]) for s in train_raw]
+        val = [self._to_sample(s, index_of[id(s)]) for s in val_raw]
+        return train, val
+
+    def kfold_datasets(self, n_folds: int = 5,
+                       seed: int = 0) -> List[Tuple[List[TrainingSample],
+                                                    List[TrainingSample]]]:
+        index_of = {id(s): i for i, s in enumerate(self._corpus)}
+        folds_raw = stratified_kfold(self._corpus, n_folds=n_folds, seed=seed)
+        splits = []
+        for k in range(n_folds):
+            val_raw = folds_raw[k]
+            train_raw = [s for j in range(n_folds) if j != k
+                         for s in folds_raw[j]]
+            train = [self._to_sample(s, index_of[id(s)]) for s in train_raw]
+            val = [self._to_sample(s, index_of[id(s)]) for s in val_raw]
+            splits.append((train, val))
+        return splits
+
+    def get_class_distribution(self, samples: List[TrainingSample]) -> Dict:
+        counts = {name: 0 for name in self.CATEGORIES}
+        for s in samples:
+            counts[s.category_name] += 1
+        return counts
+
+    def majority_baseline(self, samples: List[TrainingSample]) -> float:
         if not samples:
             return 0.0
         dist = self.get_class_distribution(samples)
