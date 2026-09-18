@@ -1,4 +1,41 @@
-# 更新日志
+﻿# 更新日志
+
+## v0.13.1 (2026-09-18)
+
+真实时序异常检测（P0 立项）落地——为公司首个**非分类**真实时序基准，
+补足招牌场景"流式监控 / 异常检测 / 指标巡检"；纯真实数据、沿用例行评估
+设施（无合成路径）。
+
+### 变更
+- **P0 · 真实时序数据集接入**：`OperationalMetricsDataset`
+  （`src/data/metrics_time_series.py`）——以 **NAB 真实运维指标**（real* 系列
+  5 个序列，`src/data/metrics_ts/raw/` 静态固化）切定长滑动窗口（40 点×
+  stride 20，2720 窗），正常/异常标签沿用官方告警标注（2.6% 异常）；接入
+  `training/` 数据通路（对齐 `training_data()` 导出），并提供
+  `split_stream(train_ratio)` 时间顺序前后划分供在线持续学习。
+- **P0 · 异常检测评估管线（实验 R5）**：`anomaly_benchmark.py`——复用
+  `stratified_kfold` 5 种子 × 5 折，冻结水库 + 线性读出，报窗口级 ACC /
+  异常检出率 / 误报率；结果 ACC **48.5%**（9/25 折超随机 50%），异常
+  **检出率 48.9%**（多数类全判正常 = 0%），误报 51.5%，最佳 L2=1e-1、
+  异常权重 10。
+- **P1 · 在线持续学习（实验 R6）**：`anomaly_stream_stability.py`——时序流
+  时间顺序前后划分，验证在线持久输出头 + 非平稳水库的漂移/稳定性；三配置
+  均稳定，默认 **cosine 后期零漂移**（final=best=97.2%），constant −1.3%、
+  freeze@2 −2.7%。
+- **`LinearReadout` 可选类别权重**：新增 `class_weight` 参数按样本加权
+  softmax 梯度，应对真实不平衡（普通读出对 2.6% 异常全判正常、检出 0%）。
+- **`benchmark-all` 扩为四真实任务**：新增第 4 行"真实时序异常检测"
+  （含异常检出率列）；支持复用已生成的结果 JSON（跳过重复特征提取）。
+- **CLI**：`train --dataset {rust,md,ts}` 新增 `ts`；新增
+  `benchmark-anomaly` / `benchmark-stream` 子命令。
+- **版本号**：0.13.0 → 0.13.1（pyproject / `__version__` /
+  `pkg.CORE_VERSION` / `min_core_version`）
+
+### 测试
+- 全量测试通过（**251 项**），新增
+  `src/tests/test_metrics_time_series.py`（真实窗口二元化 / 特征维度 /
+  training_data 导出 / kfold 折内平衡且每样本恰好验证一次 / 时间顺序流划分 /
+  class_weight 抬升检出率 / 基准模块可导入）。
 
 ## v0.13.0 (2026-09-18)
 

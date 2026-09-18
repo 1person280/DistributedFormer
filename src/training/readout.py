@@ -64,12 +64,14 @@ class LinearReadout:
     """线性 softmax 读出层 (纯 numpy, 带 L2 正则)"""
 
     def __init__(self, n_features: int, n_classes: int = 5, lr: float = 0.1,
-                 l2: float = 1e-3, epochs: int = 300, seed: int = 0):
+                 l2: float = 1e-3, epochs: int = 300, seed: int = 0,
+                 class_weight=None):
         rng = np.random.RandomState(seed)
         self.n_classes = n_classes
         self.W = rng.randn(n_classes, n_features + 1) * 0.01
         self.lr, self.l2, self.epochs = lr, l2, epochs
         self.mean_, self.scale_ = None, None
+        self.class_weight = class_weight  # 可选: 不平衡分类的类别权重 (序列, len=n_classes)
 
     def _fit_bias(self, X: np.ndarray) -> np.ndarray:
         return np.hstack([X, np.ones((len(X), 1))])
@@ -84,12 +86,16 @@ class LinearReadout:
         X = (X - self.mean_) / self.scale_
         Xb = self._fit_bias(X)
         n = len(Xb)
+        # 类别权重 (逐样本): 提升稀有类 (如异常窗口) 在 softmax 损失中的梯度
+        w = np.ones(n)
+        if self.class_weight is not None:
+            w = np.array([self.class_weight[yi] for yi in y], dtype=float)
         for _ in range(self.epochs):
             logits = Xb @ self.W.T
             logits -= logits.max(axis=1, keepdims=True)
             prob = np.exp(logits)
             prob /= prob.sum(axis=1, keepdims=True)
-            grad = (prob - np.eye(self.n_classes)[y])  # (n, C)
+            grad = (prob - np.eye(self.n_classes)[y]) * w[:, None]  # (n, C)
             self.W -= self.lr * (grad.T @ Xb) / n + self.l2 * self.W
         return self
 

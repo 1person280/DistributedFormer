@@ -5,8 +5,10 @@ DistributedFormer 命令行入口
   demo          股票监控端到端演示 (模拟数据)
   serve         长驻监控服务 (容器/生产部署入口, 支持 --realtime 真实行情)
   serve-opencode 启动 OpenAI 兼容接口服务器, 让 OpenCode 把 CubeGPT 当模型后端
-  train         真实数据训练 (Rust 编码基准 / Markdown 内容类型, --dataset)
+  train         真实数据训练 (Rust / Markdown / 时序异常检测, --dataset)
   benchmark-multi 多任务真实基准 (Rust + Markdown, 2 真实任务显著超随机)
+  benchmark-anomaly 真实时序异常检测基准 (P0, 窗口级二元检测, R5)
+  benchmark-stream 时序流在线持续学习 漂移/稳定性验证 (P1, R6)
   test          运行各模块自检
   chat          终端聊天: 与 CubeGPT 对话
 """
@@ -100,12 +102,19 @@ def cmd_train(args):
         dataset = MarkdownTextDataset(dim=16)
         train, val = dataset.generate_dataset(train_ratio=0.75, seed=args.seed)
         use_token_input = True
+    elif args.dataset == "ts":
+        # Task 3: 真实时序异常检测 — 时间顺序前后划分 (在线持续学习, v0.13.1)
+        from src.data.metrics_time_series import OperationalMetricsDataset
+        dataset = OperationalMetricsDataset()
+        train, val = dataset.split_stream(train_ratio=0.75)
+        use_token_input = False
     else:
         # Task 1: Rust 编译错误族 (默认)
         dataset = RustCodingTrainingDataset(dim=16)
         train, val = dataset.generate_dataset(train_ratio=0.75, seed=args.seed)
         use_token_input = False
-    trainer = DFTrainer(depth=args.depth, dim=16, learning_rate=args.lr,
+    trainer = DFTrainer(depth=args.depth, dim=16, n_classes=dataset.N_CLASSES,
+                        learning_rate=args.lr,
                         freeze_reservoir_epoch=args.freeze_reservoir_epoch,
                         lr_schedule=args.lr_schedule,
                         step_drop_epoch=args.step_drop_epoch,
@@ -126,9 +135,21 @@ def cmd_benchmark_multi(args):
 
 
 def cmd_benchmark_all(args):
-    """全面训练: 三真实任务统一基准 (Rust/Markdown/视频) 并汇总 (v0.12.0)"""
+    """全面训练: 四真实任务统一基准 (Rust/Markdown/视频/时序异常) 并汇总"""
     from src.experiments.benchmark_all import main as run_benchmark_all
     run_benchmark_all()
+
+
+def cmd_benchmark_anomaly(args):
+    """真实时序异常检测基准 (P0): 5 种子 × 5 折窗口级二元检测 (v0.13.1)"""
+    from src.experiments.anomaly_benchmark import main as run_anomaly
+    run_anomaly()
+
+
+def cmd_benchmark_stream(args):
+    """时序流在线持续学习 漂移/稳定性验证 (P1, v0.13.1)"""
+    from src.experiments.anomaly_stream_stability import main as run_stream
+    run_stream()
 
 
 def cmd_chat(args):
@@ -198,11 +219,13 @@ def build_parser():
         help="后端模型名 (如 qwen2.5-coder:7b); 缺省读 CUBEGPT_LM_MODEL")
     p_opencode.set_defaults(func=cmd_serve_opencode)
 
-    p_train = sub.add_parser("train", help="真实数据训练 (Rust 编码基准 / Markdown 内容类型)")
+    p_train = sub.add_parser("train",
+                             help="真实数据训练 (Rust / Markdown / 时序异常检测, --dataset)")
     p_train.add_argument("--depth", type=int, default=1, choices=[0, 1, 2])
-    p_train.add_argument("--dataset", default="rust", choices=["rust", "md"],
+    p_train.add_argument("--dataset", default="rust", choices=["rust", "md", "ts"],
                          help="真实数据集: rust=Rust 编译错误族, md=Markdown 内容类型"
-                              " (经 64 比特 class-token 端到端嵌入)")
+                              " (经 64 比特 class-token 端到端嵌入), ts=真实时序异常检测"
+                              " (NAB 真实运维指标窗口, 时间顺序前后划分)")
     p_train.add_argument("--epochs", type=int, default=10)
     p_train.add_argument("--lr", type=float, default=0.008)
     p_train.add_argument("--seed", type=int, default=42, help="分层划分种子")
@@ -221,9 +244,18 @@ def build_parser():
         help="多任务真实基准 (2 真实任务 5 种子 × 5 折 CV, 显著超随机基线)")
     p_bench_multi.set_defaults(func=cmd_benchmark_multi)
 
+    p_bench_anomaly = sub.add_parser(
+        "benchmark-anomaly", help="真实时序异常检测基准 (P0, 窗口级二元检测, R5)")
+    p_bench_anomaly.set_defaults(func=cmd_benchmark_anomaly)
+
+    p_bench_stream = sub.add_parser(
+        "benchmark-stream",
+        help="时序流在线持续学习 漂移/稳定性验证 (P1, R6)")
+    p_bench_stream.set_defaults(func=cmd_benchmark_stream)
+
     p_bench_all = sub.add_parser(
         "benchmark-all",
-        help="全面训练: 三真实任务统一基准 (Rust/Markdown/视频) 并汇总 (v0.12.0)")
+        help="全面训练: 四真实任务统一基准 (Rust/Markdown/视频/时序异常) 并汇总 (v0.13.1)")
     p_bench_all.set_defaults(func=cmd_benchmark_all)
 
     p_chat = sub.add_parser("chat", help="终端聊天: 与 CubeGPT 对话")

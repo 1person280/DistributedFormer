@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 实验汇总: 全面训练 · 三真实任务统一基准 (v0.12.0)
 
@@ -33,30 +33,43 @@ def _load_json(path):
 
 
 def _task_row(name, material, n_classes, base, acc, acc_std,
-              folds, total, version):
+              folds, total, version, detection_rate=None):
     return {
         "task": name, "material": material, "n_classes": n_classes,
         "random_baseline": base, "val_acc_mean": acc,
         "val_acc_std": acc_std, "folds_beat_random": folds,
         "total_folds": total, "version": version,
+        "detection_rate": detection_rate,
     }
+
+
+def _run_or_load(name, run_fn, path, bake=True):
+    """已有结果 JSON 则直接复用 (避免重复昂贵特征提取), 否则运行基准生成."""
+    if os.path.exists(path) and bake:
+        print(f"  复用已有 {os.path.basename(path)} (跳过重算)")
+        return _load_json(path)
+    print(f"  运行 {name} 基准 ...")
+    run_fn()
+    return _load_json(path)
 
 
 def main():
     print("=" * 70)
-    print("  全面训练 · 三真实任务统一基准 (v0.12.0)")
-    print("  5 种子 × 5 折分层 CV × 3 真实任务")
+    print("  全面训练 · 四真实任务统一基准 (v0.13.1)")
+    print("  5 种子 × 5 折分层 CV × 4 真实任务 (含时序异常检测)")
     print("=" * 70)
 
     # 1) 多任务: Rust + Markdown
     from src.experiments.multi_task_benchmark import main as run_multi
-    run_multi()
-    multi = _load_json(os.path.join(_OUT_DIR, "multi_task_results.json"))
+    multi = _run_or_load(
+        "多任务", run_multi,
+        os.path.join(_OUT_DIR, "multi_task_results.json"))
 
     # 2) 视频运动识别
     from src.experiments.video_motion_benchmark import main as run_video
-    run_video()
-    video = _load_json(os.path.join(_OUT_DIR, "video_motion_results.json"))
+    video = _run_or_load(
+        "视频", run_video,
+        os.path.join(_OUT_DIR, "video_motion_results.json"))
 
     rows = []
     for t in multi.get("tasks", []):
@@ -84,9 +97,27 @@ def main():
         version=video.get("version", "?"),
     ))
 
+    # 3) 真实时序异常检测 (P0 立项, v0.13.1)
+    from src.experiments.anomaly_benchmark import main as run_anomaly
+    anomaly = _run_or_load(
+        "时序异常", run_anomaly,
+        os.path.join(_OUT_DIR, "anomaly_results.json"))
+    rows.append(_task_row(
+        name="真实时序异常检测",
+        material="NAB 真实运维指标 × 5 序列 (40 点时序窗口)",
+        n_classes=2,
+        base=0.5,
+        acc=anomaly.get("val_acc_mean"),
+        acc_std=anomaly.get("val_acc_std"),
+        folds=anomaly.get("folds_beat_random", 0),
+        total=anomaly.get("total_folds", 25),
+        version=anomaly.get("version", "?"),
+        detection_rate=anomaly.get("anomaly_detection_rate_mean"),
+    ))
+
     summary = {
         "experiment": "benchmark_all",
-        "version": "0.12.0",
+        "version": "0.13.1",
         "date": time.strftime("%Y-%m-%d"),
         "protocol": "stratified_5fold_cv",
         "n_seeds": 5,
@@ -99,34 +130,43 @@ def main():
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
     lines = [
-        "# 全面训练 · 三真实任务统一基准报告 (v0.12.0)\n",
-        f"日期: {summary['date']}  |  5 种子 × 5 折分层 CV × 3 真实任务"
+        "# 全面训练 · 四真实任务统一基准报告 (v0.13.1)\n",
+        f"日期: {summary['date']}  |  5 种子 × 5 折分层 CV × 4 真实任务"
         f"  (每任务 25 折, 每样本恰好验证一次)\n",
-        "| 任务 | 真实训练材料 | 类别数 | 随机基线 | val_acc | 超基线折数 |",
-        "|------|--------------|--------|----------|---------|-------------|",
+        "| 任务 | 真实训练材料 | 类别数 | 随机基线 | val_acc | 异常检出率 | 超基线折数 |",
+        "|------|--------------|--------|----------|---------|-------------|-------------|",
     ]
     for r in rows:
+        det = (f"{r['detection_rate']:.0%}" if r["detection_rate"] is not None
+               else "—")
         lines.append(
             f"| {r['task']} | {r['material']} | {r['n_classes']} | "
             f"{r['random_baseline']:.0%} | "
             f"**{r['val_acc_mean']:.1%}** ± {r['val_acc_std']:.1%} | "
+            f"{det} | "
             f"{r['folds_beat_random']}/{r['total_folds']} |")
     lines += [
         "\n## 说明",
-        "- 三个真实任务 (Rust / Markdown / 视频) 全部在 25/25 折显著超过各自",
-        "  随机基线, 验证训练材料数据通路与真实信号的可学性 (纯真实, 无合成)。",
-        "- 数字来源: multi_task_results.json (Rust+MD) 与 video_motion_results.json",
-        "  (视频), 由本脚本汇总; 复现细节见各自实验报告。",
+        "- Rust / Markdown / 视频 三个分类任务在折级显著超过各自随机基线",
+        "  (25/25 折), 验证真实训练材料数据通路与信号的可学性 (纯真实, 无合成)。",
+        "- 时序异常检测为窗口级二元检测 (随机 50%): 冻结水库 + 线性读出 + 类别",
+        "  加权下, 异常检出率 (recall) 从多数类基线 0% 抬升到 ~49%, 但折级",
+        "  ACC 均值 48.5% 未稳定超随机 (9/25 折), 反映真实异常窗口在聚合",
+        "  统计描述符下的可分性有限 (ACC 与检出率有固有权衡)。",
+        "- 数字来源: multi_task_results.json (Rust+MD) / video_motion_results.json",
+        "  (视频) / anomaly_results.json (时序); 由本脚本汇总。",
     ]
     with open(os.path.join(_OUT_DIR, "benchmark_all_report.md"), "w",
               encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-    print("\n三真实任务统一基准汇总:")
+    print("\n四真实任务统一基准汇总:")
     for r in rows:
+        det = (f", 检出 {r['detection_rate']:.1%}"
+               if r["detection_rate"] is not None else "")
         print(f"  - {r['task']}: {r['val_acc_mean']:.1%} ± "
               f"{r['val_acc_std']:.1%}  (随机 {r['random_baseline']:.0%}, "
-              f"{r['folds_beat_random']}/{r['total_folds']} 折超基线)")
+              f"{r['folds_beat_random']}/{r['total_folds']} 折超基线){det}")
     print(f"\n已写入 {_OUT_DIR}/benchmark_all_results.json 与 "
           f"benchmark_all_report.md")
 

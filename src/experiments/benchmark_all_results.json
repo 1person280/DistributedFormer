@@ -1,7 +1,7 @@
-{
+﻿{
   "experiment": "benchmark_all",
-  "version": "0.12.0",
-  "date": "2026-09-17",
+  "version": "0.13.1",
+  "date": "2026-09-18",
   "protocol": "stratified_5fold_cv",
   "n_seeds": 5,
   "n_folds": 5,
@@ -15,7 +15,8 @@
       "val_acc_std": 0.037206408066760455,
       "folds_beat_random": 25,
       "total_folds": 25,
-      "version": "0.11.0"
+      "version": "0.11.0",
+      "detection_rate": null
     },
     {
       "task": "Markdown 内容类型",
@@ -26,7 +27,8 @@
       "val_acc_std": 0.02795538845845838,
       "folds_beat_random": 25,
       "total_folds": 25,
-      "version": "0.11.0"
+      "version": "0.11.0",
+      "detection_rate": null
     },
     {
       "task": "视频运动识别",
@@ -37,7 +39,20 @@
       "val_acc_std": 0.09765244492586964,
       "folds_beat_random": 25,
       "total_folds": 25,
-      "version": "0.12.0"
+      "version": "0.12.0",
+      "detection_rate": null
+    },
+    {
+      "task": "真实时序异常检测",
+      "material": "NAB 真实运维指标 × 5 序列 (40 点时序窗口)",
+      "n_classes": 2,
+      "random_baseline": 0.5,
+      "val_acc_mean": 0.48477941176470585,
+      "val_acc_std": 0.10951257413070685,
+      "folds_beat_random": 9,
+      "total_folds": 25,
+      "version": "0.13.1",
+      "detection_rate": 0.4885714285714286
     }
   ]
 }

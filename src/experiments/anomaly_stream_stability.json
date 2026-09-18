@@ -1,0 +1,55 @@
+﻿{
+  "experiment": "R6_stream_stability",
+  "version": "0.13.1",
+  "date": "2026-09-18",
+  "task": "真实运维时序流·在线持续学习 (时间顺序前后划分)",
+  "epochs": 4,
+  "train_samples": 951,
+  "val_samples": 817,
+  "drift_threshold": -0.1,
+  "configs": [
+    {
+      "schedule": "constant",
+      "val_acc_history": [
+        0.9351,
+        0.967,
+        0.9633,
+        0.9535
+      ],
+      "best_val": 0.966952264381885,
+      "final_val": 0.9534883720930233,
+      "drift": -0.01346389228886169,
+      "stable": true,
+      "seconds": 400.2
+    },
+    {
+      "schedule": "cosine",
+      "val_acc_history": [
+        0.8042,
+        0.9474,
+        0.9584,
+        0.9718
+      ],
+      "best_val": 0.9718482252141983,
+      "final_val": 0.9718482252141983,
+      "drift": 0.0,
+      "stable": true,
+      "seconds": 386.6
+    },
+    {
+      "schedule": "freeze@2",
+      "val_acc_history": [
+        0.88,
+        0.9547,
+        0.9412,
+        0.9278
+      ],
+      "best_val": 0.9547123623011016,
+      "final_val": 0.9277845777233782,
+      "drift": -0.02692778457772338,
+      "stable": true,
+      "seconds": 249.8
+    }
+  ],
+  "elapsed_seconds": 1045.3
+}

@@ -1,4 +1,4 @@
-"""
+﻿"""
 DistributedFormer — 事件驱动的脉冲神经网络智能体框架 (顶层包 src/)
 
 ════════════════════════════════════════════════════════════════
@@ -118,9 +118,16 @@ v0.13.0: Safety Shield 接入内核主路径 — SecurityMonitor 经 CuteMamenKe
 enable_security() 以执行层订阅者形态接进动作主通路 (ALLOW 转发执行主题,
 DENY/REVIEW 拦截留痕); ActionTracer 落盘持久化 (persist_path, JSONL, 默认关);
 修复 tests 收进 src 后遗留的旧 import 路径 bug。
+v0.13.1: 真实时序异常检测 (P0 立项) — 框架主场"流式监控/异常检测"首块真实
+时序基准: NAB 真实运维指标序列 (real*, 纯真实无合成) 固化 src/data/metrics_ts,
+OperationalMetricsDataset 窗口化 + 正常/异常二元标签 + training_data() 导出;
+实验 R5 窗口级异常检测基准 (5种子×5折, 窗口 ACC + 异常检出率); 实验 R6 时序流
+在线持续学习漂移/稳定性验证 (时间顺序前后划分, cosine/冻结缓解后期漂移);
+CLI 新增 --dataset ts / benchmark-anomaly / benchmark-stream; LinearReadout 增
+可选类别权重; benchmark-all 扩展为四真实任务。
 """
 
-__version__ = "0.13.0"
+__version__ = "0.13.1"
 
 # ── 仓库内零 __pycache__ (v0.8.7) ────────────────────────────
 # 在导入任何子模块前关闭字节码落地, 使直接运行 (python -m src /

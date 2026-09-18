@@ -1,4 +1,4 @@
-"""CuteMamen 插件包 (.CuteMamen) 格式: 存档 / 加载 / manifest 解码器
+﻿"""CuteMamen 插件包 (.CuteMamen) 格式: 存档 / 加载 / manifest 解码器
 
 包格式 (规范 §3, 单个 tar.gz):
 
@@ -40,7 +40,7 @@ EPISODIC_PATH = "memory/episodic.json"
 SEMANTIC_PATH = "memory/semantic.json"
 
 # 内核版本 (min_core_version 检查用); 延迟读包版本避免循环导入
-CORE_VERSION = "0.13.0"
+CORE_VERSION = "0.13.1"
 
 # ── v1 → v2 解码规则 (规范 §2 / COMPATIBILITY.md §4) ──────────
 V1_RENAMED_FIELDS = {"model_type": "base_model"}

@@ -1,4 +1,4 @@
-"""CuteMamen 专家插件基类与三级记忆 (规范 §5 生命周期钩子 / §3 memory/)
+﻿"""CuteMamen 专家插件基类与三级记忆 (规范 §5 生命周期钩子 / §3 memory/)
 
 每个插件是一个自包含的、面向特定任务的"思考插件":
 - 生命周期钩子: on_load / on_think / on_unload (内核按规范顺序调用)
@@ -284,7 +284,7 @@ class ExpertPlugin:
             "route": self.route,
             "lifecycle": ["on_load", "on_think", "on_unload"],
             "memory_budget": int(self.memory.footprint_bytes()),
-            "min_core_version": "0.13.0",
+            "min_core_version": "0.13.1",
             "memory_levels": list(PluginMemory.LEVELS),
             "core_version": CORE_VERSION,
             "format": "CuteMamen",

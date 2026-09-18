@@ -1,0 +1,60 @@
+﻿{
+  "experiment": "R5_anomaly_detection",
+  "version": "0.13.1",
+  "protocol": "stratified_5fold_cv",
+  "date": "2026-09-18",
+  "n_seeds": 5,
+  "n_folds": 5,
+  "task": "时序窗口正常/异常检测 (NAB 真实运维指标)",
+  "best_l2": 0.1,
+  "anomaly_weight": 10.0,
+  "windows": 2720,
+  "val_acc_mean": 0.48477941176470585,
+  "val_acc_std": 0.10951257413070685,
+  "anomaly_detection_rate_mean": 0.4885714285714286,
+  "anomaly_detection_rate_std": 0.14802095825129852,
+  "false_alarm_rate_mean": 0.515320754716981,
+  "seed_means": [
+    0.39963235294117644,
+    0.5400735294117647,
+    0.61875,
+    0.4569852941176471,
+    0.4084558823529412
+  ],
+  "random_baseline": 0.5,
+  "majority_baseline": 0.9742647058823529,
+  "folds_beat_random": 9,
+  "total_folds": 25,
+  "results": [
+    {
+      "seed": 0,
+      "val_accuracy": 0.39963235294117644,
+      "anomaly_detection_rate": 0.5571428571428572,
+      "false_alarm_rate": 0.6045283018867924
+    },
+    {
+      "seed": 1,
+      "val_accuracy": 0.5400735294117647,
+      "anomaly_detection_rate": 0.5142857142857142,
+      "false_alarm_rate": 0.4592452830188679
+    },
+    {
+      "seed": 2,
+      "val_accuracy": 0.61875,
+      "anomaly_detection_rate": 0.4,
+      "false_alarm_rate": 0.3754716981132075
+    },
+    {
+      "seed": 3,
+      "val_accuracy": 0.4569852941176471,
+      "anomaly_detection_rate": 0.5,
+      "false_alarm_rate": 0.5441509433962264
+    },
+    {
+      "seed": 4,
+      "val_accuracy": 0.4084558823529412,
+      "anomaly_detection_rate": 0.47142857142857136,
+      "false_alarm_rate": 0.5932075471698113
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # DistributedFormer
 
@@ -133,14 +133,21 @@ dformer serve --tickers AAPL TSLA NVDA --interval 300
 # 使用真实行情 (yfinance)
 dformer serve --realtime --interval 300
 
-# 真实数据训练 (Rust 编码基准, v0.7.5) / Markdown 内容类型 (v0.11.0)
+# 真实数据训练 (Rust 编码基准, v0.7.5) / Markdown 内容类型 (v0.11.0) / 时序异常检测 (v0.13.1)
 dformer train --depth 1 --epochs 10                 # 默认 rust
 dformer train --dataset md --depth 0 --epochs 10    # Markdown, 端到端 token 嵌入
+dformer train --dataset ts --depth 1 --epochs 4     # 真实时序异常检测 (时间顺序前后划分)
 
 # 多任务真实基准: Rust + Markdown, 5 种子 × 5 折 (实验 R3, v0.11.0)
 dformer benchmark-multi
 
-# 全面训练: 三真实任务统一基准并汇总 (Rust/Markdown/视频, v0.12.0)
+# 真实时序异常检测基准 (实验 R5, v0.13.1): 窗口级二元检测, 报 ACC + 异常检出率
+dformer benchmark-anomaly
+
+# 时序流在线持续学习 漂移/稳定性验证 (实验 R6, v0.13.1)
+dformer benchmark-stream
+
+# 全面训练: 四真实任务统一基准并汇总 (Rust/Markdown/视频/时序异常, v0.13.1)
 dformer benchmark-all
 
 # Web 图形界面: 本地浏览器控制台 (内核/插件/思考/基准, v0.12.0)
@@ -342,6 +349,7 @@ Kubernetes 清单（Deployment / Service / HPA / ConfigMap）见
 | v0.10.1 | 基准同步 502 段 5 折 CV + 读出层 L2 选优 | 5 种子 × 5 折分层 CV | **76.7%**（种子均值 75.1%–79.1%，25 折全超基线，L2=1e-3）|
 | v0.10.2 | 端到端后期漂移修复（LR 调度/水库冻结） | 端到端监督训练 12 epoch | 见下方复评 |
 | v0.11.0 | **多任务真实基准（实验 R3）+ 端到端可学习** | 5 种子 × 5 折分层 CV × 2 任务 | **Rust 76.7% / Markdown 57.7%** |
+| v0.13.1 | **真实时序异常检测（实验 R5）** | 5 种子 × 5 折分层 CV，窗口级二元检测 | **检出率 48.9%**（ACC 48.5%，多数类对异常 = 0%）|
 
 **表 2 · 思考插件推理**（真实数据经 CuteMamen 插件训练/迁移后路由推理）：
 
@@ -452,7 +460,7 @@ loaded, manifest = load_pkg("plugin/MyRust.CuteMamen")  # base_model=rust.coding
   基线 10%), 见
   [`src/experiments/video_motion_report.md`](src/experiments/video_motion_report.md)
 * 复现: `python src/experiments/video_motion_benchmark.py`
-  或统一跑三任务: `dformer benchmark-all`（见
+  或统一跑四任务: `dformer benchmark-all`（见
   [`src/experiments/benchmark_all_report.md`](src/experiments/benchmark_all_report.md)）
 
 ```python
@@ -561,29 +569,46 @@ result = kernel.think({"topic": "video",
   与 **全面训练 `dformer benchmark-all`**（三真实任务统一基准并汇总：
   Rust 76.7% / Markdown 58.3% / 视频 61.7%，25/25 折全超基线）
 
-- [ ] 新阶段 · 真实时序异常检测（P0 立项，目标里程碑 **v0.13.0**），见下方小节
-  **🚀 规划推进中——补足框架主场"流式监控 / 异常检测"首块真实时序基准**
-  - [ ] P0 真实时序数据集（非分类）接入 `training/` 数据通路
-  - [ ] P0 异常检测评估管线（`stratified_kfold` 5 种子 × 5 折）
-  - [ ] P1 在线持续学习：非平稳水库在时序流上的漂移/稳定性验证
+- [x] 新阶段 · 真实时序异常检测（P0 立项，里程碑 **v0.13.1**），见下方小节
+  **✅ 已完成（v0.13.1）**——补足框架主场"流式监控 / 异常检测"首块真实时序基准
+  - [x] P0 真实时序数据集（非分类）接入 `training/` 数据通路
+  - [x] P0 异常检测评估管线（`stratified_kfold` 5 种子 × 5 折）
+  - [x] P1 在线持续学习：非平稳水库在时序流上的漂移/稳定性验证
 
-### 规划推进 · 真实时序异常检测（P0 立项）
+### ~~真实时序异常检测（P0 立项）~~ ✅ 已完成（v0.13.1）
 
 框架声明面向"流式监控 / 异常检测 / 指标巡检"这一持续在线场景，但
 v0.6–v0.12 落地的端到端路线与全部基准均为**分类任务**（Rust 编译错误、
 Markdown 内容类型、视频运动识别），尚无任何真实异常检测 / 时序基准支撑
-招牌场景。据此立项本方向，目标里程碑 **v0.13.0**，纯真实数据、沿用既有
-评估设施（沿用硬约束，无合成路径）：
+招牌场景。据此立项本方向，为公司首个**非分类**真实时序基准
+（纯真实、无合成，联动 NAB 官方标注）：
 
-1. **P0 · 真实时序数据集接入**（规划中）：选型真实指标/日志/告警时序源，
-   构造"正常/异常"标签，保持纯真实、无合成硬约束；接入 `training/`
-   数据通路（对齐 `RustCodingTrainingDataset` 的 `training_data()` 导出）。
-2. **P0 · 异常检测评估管线**（规划中）：复用 `stratified_kfold` + 5 种子 ×
-   5 折的既有 CV 设施，给出超随机基线 20% 的折数结论；窗口级度量
-   （如逐窗口 ACC / 检出率）纳入 `benchmark-all` 统一汇总。
-3. **P1 · 在线持续学习验证**（规划中）：把框架"7×24 持续在线"卖点落到首个
-   非分类任务——验证在线持久输出头 + 非平稳水库在时序流上的漂移/稳定性，
-   对齐 v0.10.2 已缓解的后期漂移问题（`cosine` LR / `--freeze-reservoir-epoch`）。
+1. **P0 · 真实时序数据集接入** ✅：`OperationalMetricsDataset`
+   （`src/data/metrics_time_series.py`），以 **NAB 真实运维指标**（real*
+   系列 5 个序列，`src/data/metrics_ts/raw/` 静态固化）切成定长滑动窗口
+   （40 点×stride 20，2720 窗），正常/异常标签沿用官方告警标注（2.6%
+   异常）；接入 `training/` 数据通路，对齐 `RustCodingTrainingDataset`
+   的 `training_data()` 导出，并提供 `split_stream(train_ratio)`
+   时间顺序前后划分供在线持续学习。
+2. **P0 · 异常检测评估管线** ✅：复用 `stratified_kfold` + 5 种子 × 5 折
+   既有 CV 设施；冻结水库 + 线性读出，**窗口级 ACC / 异常检出率 / 误报率**
+   纳入 `benchmark-all`（四真实任务统一汇总）。`LinearReadout` 新增可选
+   类别权重以应对真实不平衡（多数类对异常检出 = 0%）。
+3. **P1 · 在线持续学习验证** ✅：把"7×24 持续在线"卖点落到首个非分类
+   任务——在线持久输出头 + 非平稳水库在时序流上验证漂移/稳定性，
+   对齐 v0.10.2 已缓解的后期漂移（`cosine` LR 默认 / `--freeze-reservoir-epoch`）。
+
+**结果（R5 异常检测基准，5 种子 × 5 折）**：窗口级 ACC **48.5%** ± 11.0%
+（9/25 折超随机 50%；真实异常窗口在聚合统计描述符下可分性有限），异常
+**检出率 48.9%** ± 14.8%（多数类全判正常 = 0%），误报 51.5%，最佳
+L2=1e-1、异常权重 10（ACC 与检出率的平衡点）。见
+[`src/experiments/anomaly_report.md`](src/experiments/anomaly_report.md)。
+
+**结果（R6 时序流在线持续学习）**：时间顺序前后划分（train 951 / val 817，
+4 epoch）三配置均**稳定**（drift ≥ −10pct 判定）；默认 **cosine** 后期
+零漂移（final=best=97.2%），constant 微小回落 (−1.3%)，freeze@2 −2.7%——
+v0.10.2 的后期漂移缓解手段在真实时序流上同样有效。见
+[`src/experiments/anomaly_stream_stability.md`](src/experiments/anomaly_stream_stability.md)。
 
 ### ~~准确率瓶颈解决方案（36% 瓶颈，v0.7.5 诊断结论）~~ ✅ 已完成（v0.8.4）
 
