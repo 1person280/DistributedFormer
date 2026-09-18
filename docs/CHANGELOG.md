@@ -1,5 +1,33 @@
 # 更新日志
 
+## v0.13.0 (2026-09-18)
+
+响应 OmniSpace 实测反馈（issue #2）：把安全盾接入内核主路径，并补齐
+ActionTracer 落盘持久化，同时修复一个测试收集遗留 bug。
+
+### 变更
+- **安全监控接入内核主路径**：`CuteMamenKernel` 新增 `enable_security()` /
+  `security_stats()`/`_security_gate()`——以"执行层订阅者"形态订阅动作主题
+  `action.request`，候选动作经 `SecurityMonitor.gate()` 判定后：ALLOW →
+  转发到执行主题 `action.execute`（真实执行层订阅），DENY/REVIEW → 拦截留痕。
+  内核与插件本身不感知监控面，监控面只拦动作下发；默认不启用，向后兼容。
+- **`ActionTracer` 可选落盘持久化**：新增 `persist_path` 参数（默认 `None`
+  不落盘），每条审计记录以 JSONL（每行一条）追加写入；新增 `load()` 类方法
+  从落盘文件读回全量审计（跨进程/重启溯源）。落盘/导出/复盘统一 `_trace_dict`
+  格式。
+- **修复测试收集 bug**：`src/tests/test_security_integration_units.py` 的
+  `from tests.test_security_integration import ...` 是 v0.8.7 tests 收进 src
+  前的旧路径，改为 `from src.tests.test_security_integration import ...`（全量
+  collect 阶段不再 `ModuleNotFoundError`）。
+- **测试**：新增内核接线测试（default off / enable_security 幂等 / ALLOW 转发
+  / DENY 拦截 / REVIEW 挂起）与 ActionTracer 落盘测试（写 JSONL / load 读回 /
+  默认关 / 缺文件幂等），合并计 10 项。
+- **版本号**：0.12.0 → 0.13.0（pyproject / `__version__` /
+  `pkg.CORE_VERSION` / `min_core_version`）
+
+### 测试
+- 全量测试通过（244 项，含新增 10 项）。
+
 ## v0.12.0 (2026-09-17)
 
 新增**视频生成训练**（真实运动识别基准，实验 R4）、**Web 图形界面**

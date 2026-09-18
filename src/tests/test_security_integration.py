@@ -106,7 +106,7 @@ def test_allow_flow_end_to_end():
         "breaker": {"tripped": 0, "rejected": 0, "pending": 0},
         "fingerprint": {"checks": 1, "anomalies": 0, "baseline_tools": 0,
                         "window_size": 1},
-        "tracer": {"traces": 1, "capacity": 512},
+        "tracer": {"traces": 1, "capacity": 512, "persist": None},
     }
 
 
@@ -246,3 +246,102 @@ def test_rust_plugin_and_tool_plugin_share_one_gate():
     assert executor.executed == ["report_generate"]
     # 只有 tools 候选经过门禁: inspected=2 而非 3
     assert monitor.stats()["probe"] == {"inspected": 2, "denied": 1, "history": 2}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 安全监控接入内核主路径 (v0.13.0 enable_security / 执行层订阅者形态)
+# ═══════════════════════════════════════════════════════════════
+
+from src.cutemamen.kernel import (  # noqa: E402
+    SECURITY_ACTION_TOPIC, SECURITY_EXEC_TOPIC,
+)
+
+
+def _build_security_kernel():
+    """内核 + 启用安全监控 + 挂载会发起动作的思考插件"""
+    from src.cutemamen import ExpertPlugin as _EP
+
+    class SecPlugin(_EP):
+        NAME = "sec-plugin"
+
+        def __init__(self):
+            super().__init__(self.NAME, route="numeric")
+
+        def on_think(self, event, ctx):
+            tool = event["data"]
+            ctx.emit(SECURITY_ACTION_TOPIC, {"tool": tool})
+            return {"requested": tool}
+
+    kernel = CuteMamenKernel(dim=16)
+    monitor = kernel.enable_security()
+    kernel.mount(SecPlugin())
+    return kernel, monitor
+
+
+def test_security_disabled_by_default_on_kernel():
+    """内核默认不激活安全监控 (向后兼容, 不影响既有内核使用)"""
+    kernel = CuteMamenKernel(dim=16)
+    assert kernel.security is None
+    assert kernel.security_stats() == {"enabled": False}
+    assert kernel.bus.subscriber_count(SECURITY_ACTION_TOPIC) == 0
+
+
+def test_enable_security_starts_subscriber_and_stats():
+    """enable_security 后: 动作主题有订阅者, 统计含 enabled 标记"""
+    kernel, monitor = _build_security_kernel()
+    assert kernel.security is monitor
+    assert kernel.bus.subscriber_count(SECURITY_ACTION_TOPIC) == 1
+    stats = kernel.security_stats()
+    assert stats["enabled"] is True
+    assert stats["probe"] and stats["tracer"] and stats["breaker"]
+
+
+def test_enable_security_is_idempotent():
+    """重复 enable_security 返回同一监控器 (不重复订阅)"""
+    kernel = CuteMamenKernel(dim=16)
+    m1 = kernel.enable_security()
+    m2 = kernel.enable_security()
+    assert m1 is m2
+    assert kernel.bus.subscriber_count(SECURITY_ACTION_TOPIC) == 1
+
+
+def test_kernel_gate_allow_forwards_to_exec_topic():
+    """ALLOW 动作: 内核门禁转发到执行主题, 真实执行层可订阅执行"""
+    kernel, monitor = _build_security_kernel()
+    executed = []
+    kernel.bus.subscribe(SECURITY_EXEC_TOPIC, lambda e: executed.append(e["payload"]))
+
+    kernel.think({"topic": "numeric", "data": "report_generate"})
+
+    assert executed == [{"tool": "report_generate"}]
+    assert monitor.stats()["probe"]["inspected"] == 1
+    assert monitor.stats()["probe"]["denied"] == 0
+    # 落盘默认关
+    assert monitor.stats()["tracer"]["persist"] is None
+
+
+def test_kernel_gate_deny_blocks_from_exec_topic():
+    """DENY 动作: 不进执行主题, 探针统计拦截留痕"""
+    kernel, monitor = _build_security_kernel()
+    reached = []
+    kernel.bus.subscribe(SECURITY_EXEC_TOPIC, lambda e: reached.append(e))
+
+    kernel.think({"topic": "numeric", "data": "sudo"})
+
+    assert reached == []                       # 逃逸动作未到达执行层
+    assert monitor.probe.total_denied == 1
+    assert len(monitor.probe.history) == 1     # 审计留痕
+
+
+def test_kernel_gate_review_pends_in_breaker():
+    """REVIEW 动作: 不发执行主题, 熔断器挂起审核单"""
+    kernel, monitor = _build_security_kernel()
+    reached = []
+    kernel.bus.subscribe(SECURITY_EXEC_TOPIC, lambda e: reached.append(e))
+
+    kernel.think({"topic": "numeric", "data": "db_write"})
+
+    assert reached == []
+    assert monitor.breaker.total_tripped >= 1
+    # 审核单挂起, fail-closed 默认拒绝
+    assert len(monitor.breaker.pending) == 1

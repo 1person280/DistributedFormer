@@ -40,6 +40,13 @@ DEFAULT_PKG_DIR = os.path.join(CACHE_DIR, "cutemamen_pkgs")
 # think() 按路由主题随用随载热加载 —— 宿主代码无需 import 插件模块
 DEFAULT_PLUGIN_DIR = "plugin"
 
+# ── 运行时安全监控的动作通路 (RFC #1, v0.13.0 接入内核主路径) ──
+# 思考插件把「候选动作」发布到 ACTION_TOPIC; 开启安全监控后, 内核
+# 以执行层订阅者的形态拦截该主题 —— ALLOW 转发到 EXEC_TOPIC (真实
+# 执行层订阅), DENY/REVIEW 拦截留痕。内核与插件本身不感知监控面。
+SECURITY_ACTION_TOPIC = "action.request"
+SECURITY_EXEC_TOPIC = "action.execute"
+
 
 # ═══════════════════════════════════════════════════════════════
 # 内核工作记忆 (固定容量)
@@ -109,6 +116,9 @@ class CuteMamenKernel:
                                   kernel_version=_kernel_version(),
                                   dim=dim)
         self.total_thinks = 0
+        # 运行时安全监控面 (RFC #1, v0.13.0): 默认不启用; enable_security()
+        # 后以执行层订阅者形态拦截动作主题, 内核/插件不感知监控面。
+        self.security = None
 
     # ── 生命周期管理 ────────────────────────────────────────
     def mount(self, plugin: ExpertPlugin, route: Optional[str] = None) -> Dict:
@@ -307,6 +317,39 @@ class CuteMamenKernel:
             "working_memory": self.working_memory.stats(),
             "bus": self.bus.stats(),
         }
+
+    # ── 运行时安全监控 (RFC #1 / v0.13.0 接入主路径) ────────────
+    def enable_security(self, monitor: Optional["Any"] = None):
+        """把安全监控面接进内核动作主路径 (执行层订阅者形态)
+
+        开启后, 内核订阅 SECURITY_ACTION_TOPIC: 插件发布的候选动作
+        先经 SecurityMonitor.gate() 判定 —— ALLOW 转发到
+        SECURITY_EXEC_TOPIC (真实执行层订阅), DENY/REVIEW 拦截留痕。
+        内核与插件本身不感知监控面, 监控面只拦截动作下发。
+        重复调用返回既有监控器 (幂等)。
+        """
+        if self.security is not None:
+            return self.security
+        if monitor is None:
+            from src.security_monitor import SecurityMonitor
+            monitor = SecurityMonitor()
+        self.security = monitor
+        self.bus.subscribe(SECURITY_ACTION_TOPIC, self._security_gate)
+        return monitor
+
+    def _security_gate(self, event: Dict[str, Any]) -> None:
+        """执行层订阅者: 候选动作 → gate → 放行转发 / 拦截留痕"""
+        action = event["payload"]
+        ok, audited, review = self.security.gate(action)
+        if ok:
+            self.bus.publish(SECURITY_EXEC_TOPIC, action)
+        # DENY/REVIEW: 不转发; 拦截与审核单均在 gate() 内留痕 (tracer/breaker)
+
+    def security_stats(self) -> Dict[str, Any]:
+        """安全监控统计 (未启用时返回说明)"""
+        if self.security is None:
+            return {"enabled": False}
+        return {"enabled": True, **self.security.stats()}
 
 
 def _kernel_version() -> str:

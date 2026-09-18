@@ -11,7 +11,7 @@ import time
 
 from src.cutemamen import CuteMamenKernel, ExpertPlugin
 from src.security_monitor import SecurityMonitor, Verdict
-from tests.test_security_integration import (
+from src.tests.test_security_integration import (
     ACTION_TOPIC, ExecutionLayer, ToolCallingPlugin, build_runtime,
 )
 

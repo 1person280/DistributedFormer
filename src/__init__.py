@@ -114,9 +114,13 @@ v0.10.1: 准确率基准同步与 L2 选优 — rust_benchmark 从 100 段单次
 v0.10.2: 修复端到端后期漂移 — DFTrainer 新增 LR 调度 (默认 cosine) 与
 水库冻结; cosine 后期降低 w_in 学习率, 非平稳水库不再使验证准确率回落,
 12 轮在 502 段语料上最终 epoch 稳定 (含深度2复评)。
+v0.13.0: Safety Shield 接入内核主路径 — SecurityMonitor 经 CuteMamenKernel
+enable_security() 以执行层订阅者形态接进动作主通路 (ALLOW 转发执行主题,
+DENY/REVIEW 拦截留痕); ActionTracer 落盘持久化 (persist_path, JSONL, 默认关);
+修复 tests 收进 src 后遗留的旧 import 路径 bug。
 """
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 # ── 仓库内零 __pycache__ (v0.8.7) ────────────────────────────
 # 在导入任何子模块前关闭字节码落地, 使直接运行 (python -m src /

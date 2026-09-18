@@ -14,6 +14,8 @@ record() 生成全局唯一 action_id 并绑定四元组; query() 支持多维�
 replay() 重建单个动作的完整链路以供事后复盘。
 """
 
+import json
+import os
 import time
 import uuid
 from collections.abc import Iterator
@@ -37,7 +39,7 @@ class ActionTrace:
 class ActionTracer:
     """全链路审计存储: 绑定四元组 + 多维查询 + 溯源复盘
 
-    用法 (骨架, 尚未接入 CuteMamenKernel 主路径):
+    用法:
         tracer = ActionTracer()
         aid = tracer.record(
             thinking_state={"step": "call db_write"},
@@ -47,17 +49,27 @@ class ActionTracer:
         )
         trace = tracer.replay(aid)          # 完整复盘单条链路
         logs = tracer.query(risk_tag="review")  # 多维回溯审计
+
+    落盘持久化 (RFC 开放问题已落地, v0.13.0): 传入 persist_path 后,
+    每条审计记录以 JSONL (每行一条) 追加写入; 内存环形缓冲仍保留,
+    落盘为可选的合规留档, 便于跨进程/强监管场景溯源。默认不落盘。
     """
 
     def __init__(self, capacity: int = 512,
-                 id_factory=None, clock=None):
-        """- capacity: 内存环形容量, 超出后淘汰最旧记录 (落盘为 RFC 开放问题)
+                 id_factory=None, clock=None,
+                 persist_path: Optional[str] = None):
+        """- capacity: 内存环形容量, 超出后淘汰最旧记录
+        - persist_path: 可选落盘文件 (JSONL 追加); 为空则不落盘
         - id_factory/clock: 可注入以支持确定性测试
         """
         self.capacity = capacity
         self._id = id_factory or _new_id
         self._clock = clock or time.time
         self.traces: List[ActionTrace] = []
+        self.persist_path = persist_path
+        if persist_path:
+            os.makedirs(os.path.dirname(os.path.abspath(persist_path)),
+                        exist_ok=True)
 
     def record(self,
                thinking_state: Optional[Dict[str, Any]] = None,
@@ -77,9 +89,18 @@ class ActionTracer:
             tags=list(tags or []),
         )
         self.traces.append(trace)
+        if self.persist_path:
+            self._persist(trace)
         if len(self.traces) > self.capacity:
             self.traces.pop(0)
         return trace.action_id
+
+    # ── 落盘持久化 ──────────────────────────────────────────────
+    def _persist(self, trace: ActionTrace) -> None:
+        """追加单条审计记录为一行 JSON (JSONL, 原子写单行)"""
+        line = json.dumps(self._trace_dict(trace), ensure_ascii=False)
+        with open(self.persist_path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
 
     # ── 回溯查询 ──────────────────────────────────────────────────
     def query(self,
@@ -110,19 +131,23 @@ class ActionTracer:
             result.append(tr)
         return result
 
+    def _trace_dict(self, tr: "ActionTrace") -> Dict[str, Any]:
+        """单条审计记录的结构化字典 (落盘 / 导出 / 复盘共用同一格式)"""
+        return {
+            "action_id": tr.action_id,
+            "t": tr.t,
+            "thinking_state": tr.thinking_state,
+            "decision_basis": tr.decision_basis,
+            "tool_params": tr.tool_params,
+            "execution_result": tr.execution_result,
+            "tags": tr.tags,
+        }
+
     def replay(self, action_id: str) -> Dict[str, Any]:
         """溯源复盘: 返回该动作的四元组完整画像 (未找到则返回空字典)"""
         for tr in self.traces:
             if tr.action_id == action_id:
-                return {
-                    "action_id": tr.action_id,
-                    "t": tr.t,
-                    "thinking_state": tr.thinking_state,
-                    "decision_basis": tr.decision_basis,
-                    "tool_params": tr.tool_params,
-                    "execution_result": tr.execution_result,
-                    "tags": tr.tags,
-                }
+                return self._trace_dict(tr)
         return {}
 
     def iter_traces(self) -> Iterator[ActionTrace]:
@@ -131,18 +156,24 @@ class ActionTracer:
 
     def export(self) -> List[Dict[str, Any]]:
         """导出结构化的全量审计日志 (逐条四元组字典)"""
-        return [{
-            "action_id": tr.action_id,
-            "t": tr.t,
-            "thinking_state": tr.thinking_state,
-            "decision_basis": tr.decision_basis,
-            "tool_params": tr.tool_params,
-            "execution_result": tr.execution_result,
-            "tags": tr.tags,
-        } for tr in self.traces]
+        return [self._trace_dict(tr) for tr in self.traces]
+
+    @classmethod
+    def load(cls, path: str) -> List[Dict[str, Any]]:
+        """从 JSONL 落盘文件读回全部审计记录 (跨进程/重启溯源)"""
+        records: List[Dict[str, Any]] = []
+        if not os.path.isfile(path):
+            return records
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+        return records
 
     def stats(self) -> Dict[str, Any]:
-        return {"traces": len(self.traces), "capacity": self.capacity}
+        return {"traces": len(self.traces), "capacity": self.capacity,
+                "persist": self.persist_path}
 
 
 def _new_id() -> str:

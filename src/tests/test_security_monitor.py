@@ -410,8 +410,53 @@ def test_tracer_export_and_stats():
     assert len(exported) == 2
     assert {et["tool_params"]["tool"] for et in exported} == {"a", "b"}
     assert "execution_result" in exported[0] and "thinking_state" in exported[0]
-    assert tracer.stats() == {"traces": 2, "capacity": 512}
+    assert tracer.stats() == {"traces": 2, "capacity": 512, "persist": None}
     assert len(list(tracer.iter_traces())) == 2
+
+
+def test_tracer_persist_writes_jsonl(tmp_path):
+    """落盘持久化 (v0.13.0): 传入 persist_path 每条记录追加 JSONL"""
+    import json
+    path = tmp_path / "audit.jsonl"
+    tracer = ActionTracer(persist_path=str(path))
+    tracer.record(tool_params={"tool": "db_write"}, tags=["review"])
+    tracer.record(tool_params={"tool": "report_generate"})
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    first = json.loads(lines[0])
+    assert first["tool_params"]["tool"] == "db_write"
+    assert first["tags"] == ["review"]
+    # 内存与落盘一致
+    assert tracer.stats()["persist"] == str(path)
+    assert tracer.stats()["traces"] == 2
+
+
+def test_tracer_persist_load_reads_back(tmp_path):
+    """ActionTracer.load 从 JSONL 读回全部审计 (跨进程/重启溯源)"""
+    path = tmp_path / "audit.jsonl"
+    tracer = ActionTracer(persist_path=str(path))
+    tracer.record(tool_params={"tool": "sudo"})
+    tracer.record(tool_params={"tool": "port_scan"})
+
+    loaded = ActionTracer.load(str(path))
+    assert [r["tool_params"]["tool"] for r in loaded] == ["sudo", "port_scan"]
+    assert all({"action_id", "t", "thinking_state", "decision_basis",
+                "tool_params", "execution_result", "tags"} <= r.keys() for r in loaded)
+
+
+def test_tracer_persist_default_off(tmp_path):
+    """默认不落盘: 无 persist_path 不写文件, stats 记 None"""
+    tracer = ActionTracer()
+    tracer.record(tool_params={"tool": "a"})
+    assert tracer.stats()["persist"] is None
+    assert not (tmp_path / "audit.jsonl").exists()
+
+
+def test_tracer_load_missing_file_returns_empty(tmp_path):
+    """load 不存在的文件返回空表 (幂等, 不抛错)"""
+    from src.security_monitor import ActionTracer as AT
+    assert AT.load(str(tmp_path / "nope.jsonl")) == []
 
 
 # ═══════════════════════════════════════════════════════════════
