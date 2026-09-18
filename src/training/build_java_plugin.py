@@ -15,7 +15,10 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 该脚本位于 src/training/ 下, 项目根目录往上三级
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
+sys.path.insert(0, _ROOT)
 
 from src.cutemamen import JavaCodingPlugin, save_pkg
 from src.data.real_dataset import JavaCodingTrainingDataset
@@ -24,8 +27,7 @@ from src.training.readout import run_cross_validation as _run_cv  # 与插件同
 
 SEEDS = (0, 1, 2, 3, 4)
 N_FOLDS = 5
-PKG_PATH = os.path.join(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))), "plugin", "JavaCoding.CuteMamen")
+PKG_PATH = os.path.join(_ROOT, "plugin", "JavaCoding.CuteMamen")
 
 
 def eval_plugin_routing(train, val, seed: int, migrated: bool) -> float:

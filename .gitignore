@@ -7,11 +7,12 @@ dist/
 venv/
 # 统一运行时缓存根目录 (v0.8.7 精简): 插件存档/面存档/pytest/Python 字节码缓存
 # 解码/卸载/淘汰自动导出 → cache/cutemamen_pkgs, cache/face_pkgs
+# pip/打包残留 (dist, *.egg-info) 也收敛到 cache/build
 cache/
 
 # 训练权重体积过大 (单个 5.7-30MB, 合计 ~240MB), 通过 GitHub Release 分发
-training/checkpoints/*.npz
-training/checkpoints/*/
+src/training/checkpoints/*.npz
+src/training/checkpoints/*/
 *.npz
 
 logs/

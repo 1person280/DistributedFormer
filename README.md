@@ -103,21 +103,21 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 
 **① 插件个人信息**
 
-| 插件名字 | 额外参数量 | 插件精度 |
-|---|---|---|
-| RustCodingPlugin | 4,149 | float64 |
-| JavaCodingPlugin | 6,019 | float64 |
-| VideoMakingPlugin | 3,658 | float64 |
-| OperationalMetricsDataset | 2,370 | float64 |
+| 插件名字 | 擅长领域 | 真实数据来源 | 规模与标签 | 额外参数量 | 插件精度 |
+|---|---|---|---|---|---|
+| RustCodingPlugin | Rust 编译错误分类 | 真实风格 Rust 代码 + 真实 rustc 错误码 | 502 段 × 5 类（move/borrow/lifetime/type/ok）| 4,149 | float64 |
+| JavaCodingPlugin | Java 祖传代码静态问题 | 真实风格 Java 代码 + 真实 javac/静态分析诊断 | 294 段 × 8 类（null/rawtype/deprecated/generic/type/symbol/override/ok）| 6,019 | float64 |
+| VideoMakingPlugin | 视频镜头运动识别 | 真实运镜 / 分镜惯例曲线 | 10 类 × 20 点 = 200 样本 | 3,658 | float64 |
+| OperationalMetricsDataset | 时序异常检测（窗口级）| NAB 真实运维指标（real* 系列，官方告警标注）| 2720 滑窗 × 2 类（异常 2.6%）| 2,370 | float64 |
 
 **② 插件测试结果**
 
-| 擅长领域 | 真实数据来源 | 规模与标签 | 准确率 | 准确率评估 |
-|---|---|---|---|---|
-| Rust 编译错误分类 | 真实风格 Rust 代码 + 真实 rustc 错误码 | 502 段 × 5 类（move/borrow/lifetime/type/ok）| **76.7%** ± 3.7% | 5 种子 × 5 折，种子均值 75.1–79.1%，超随机 20%（25/25 折）|
-| Java 祖传代码静态问题 | 真实风格 Java 代码 + 真实 javac/静态分析诊断 | 294 段 × 8 类（null/rawtype/deprecated/generic/type/symbol/override/ok）| **58.2%** | 5 种子 × 5 折，超随机 12.5%（约 4.7 倍），vs 原型基线 56.5%；交付 `plugin/JavaCoding.CuteMamen`（迁移知识）|
-| 视频镜头运动识别 | 真实运镜 / 分镜惯例曲线 | 10 类 × 20 点 = 200 样本 | **61.7%** ± 9.8% | 5 种子 × 5 折，种子均值 56.0–67.0%，超随机 10%（25/25 折）|
-| 时序异常检测（窗口级）| NAB 真实运维指标（real* 系列，官方告警标注）| 2720 滑窗 × 2 类（异常 2.6%）| ACC **48.5%** ± 11.0% / 检出率 **48.9%** ± 14.8% | 5 种子 × 5 折（异常类梯度=10），超随机 50%（9/25 折，多数类 97.4% 下如实偏低）|
+| 插件名字 | 准确率 | 准确率评估 |
+|---|---|---|
+| RustCodingPlugin | **76.7%** ± 3.7% | 5 种子 × 5 折，种子均值 75.1–79.1%，超随机 20%（25/25 折）|
+| JavaCodingPlugin | **58.2%** | 5 种子 × 5 折，超随机 12.5%（约 4.7 倍），vs 原型基线 56.5%；交付 `plugin/JavaCoding.CuteMamen`（迁移知识）|
+| VideoMakingPlugin | **61.7%** ± 9.8% | 5 种子 × 5 折，种子均值 56.0–67.0%，超随机 10%（25/25 折）|
+| OperationalMetricsDataset | ACC **48.5%** ± 11.0% / 检出率 **48.9%** ± 14.8% | 5 种子 × 5 折（异常类梯度=10），超随机 50%（9/25 折，多数类 97.4% 下如实偏低）|
 
 数据集定义见 `src/data/`（`rust_coding.py` / `java_coding.py` / `video_motion.py` /
 `metrics_time_series.py`），插件用法见 [docs/CUTEMAMEN.md](docs/CUTEMAMEN.md)。

@@ -102,7 +102,7 @@ def run_first_training(
     print("  [3/5] 开始训练")
     print("="*70)
     
-    save_dir = "training/checkpoints"
+    save_dir = "src/training/checkpoints"
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs("reports", exist_ok=True)
     os.makedirs("visualization", exist_ok=True)

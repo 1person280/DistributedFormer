@@ -229,7 +229,7 @@ def build_parser():
     p_train.add_argument("--epochs", type=int, default=10)
     p_train.add_argument("--lr", type=float, default=0.008)
     p_train.add_argument("--seed", type=int, default=42, help="分层划分种子")
-    p_train.add_argument("--save-dir", default="training/checkpoints")
+    p_train.add_argument("--save-dir", default="src/training/checkpoints")
     p_train.add_argument("--freeze-reservoir-epoch", type=int, default=None,
                          help="冻结水库epoch (仅调输出头, 同离线读出范式)")
     p_train.add_argument("--lr-schedule", default="cosine",

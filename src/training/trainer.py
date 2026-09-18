@@ -571,7 +571,7 @@ class DFTrainer:
     def train(self, train_samples: List[TrainingSample],
               val_samples: List[TrainingSample],
               epochs: int = 30,
-              save_dir: str = "training/checkpoints") -> Dict:
+              save_dir: str = "src/training/checkpoints") -> Dict:
         """完整训练流程"""
         os.makedirs(save_dir, exist_ok=True)
         
@@ -845,9 +845,9 @@ if __name__ == "__main__":
               f"Val Acc={val_metrics['accuracy']:.2%}")
     
     print("\n[测试权重保存/加载]")
-    os.makedirs("training/checkpoints", exist_ok=True)
-    trainer.save_weights("training/checkpoints/test_model.npz")
-    trainer.load_weights("training/checkpoints/test_model.npz")
+    os.makedirs("src/training/checkpoints", exist_ok=True)
+    trainer.save_weights("src/training/checkpoints/test_model.npz")
+    trainer.load_weights("src/training/checkpoints/test_model.npz")
     print("  权重保存/加载成功")
     
     print("\n" + "=" * 60)
