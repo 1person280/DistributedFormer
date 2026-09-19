@@ -4,18 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "distributedformer"
-version = "0.14.5"
+version = "0.14.6"
 description = "CubeGPT — cube-connected multimodal spiking pulse model (4 faces x ~4.4K units x 16 params ~ 281K), with KV-stack memory and multi-agent pulse workflows"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "DistributedFormer contributors" }]
 keywords = ["spiking-neural-network", "neuromorphic", "agents", "event-driven", "anomaly-detection"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",

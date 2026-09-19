@@ -10,8 +10,8 @@
 
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.14.5-orange)](docs/CHANGELOG.md)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.14.6-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#外部动作)
 
 </div>
@@ -20,10 +20,9 @@
 
 ## 对比一览 · 与同行 Transformer / 脉冲框架
 
-明晃晃的定位：DistributedFormer 走的是 **16 参数脉冲神经元 + 事件驱动异步传播 + 持久工作记忆**的
-轻量在线路线。下表和行内稠密 **Transformer** 大模型（GPT-2 / GPT-4o / Llama 等），以及同为
-脉冲/事件驱动的研究框架 **snnTorch / Norse / Lava** 放在同一张能力表里对照。能力维度均为
-公开可核验事实或本仓库架构事实，不做夸大。
+定位：DistributedFormer 走 **16 参数脉冲神经元 + 事件驱动异步传播 + 持久工作记忆**的轻量
+在线路线，下表与稠密 **Transformer** 大模型（GPT-2 / GPT-4o / Llama 等）及脉冲/事件驱动
+研究框架 **snnTorch / Norse / Lava** 同表对照。维度均为公开可核验或本仓库架构事实。
 
 | 对比维度 | **DistributedFormer · CubeGPT** | 通用 Transformer / GPT 系 | snnTorch / Norse（PyTorch SNN 库） | Lava（Intel 神经形态） |
 |---|---|---|---|---|
@@ -58,10 +57,9 @@
 
 ## 这是什么与快速开始
 
-DistributedFormer 探索一条不同于 Transformer 的路线：**用超简单的神经元（每个恰好 16 个标量参数）+
-事件驱动的异步脉冲传播**，构建可以 7×24 持续在线、按事件触发计算的智能体网络。它的目标场景是
-"永远在线的流式监控"——市场异动检测、指标巡检、IoT 阈值告警——这类任务不需要大模型的重算力，
-需要的是低延迟、事件驱动和持久的工作记忆。
+DistributedFormer 走不同于 Transformer 的路线：**超简神经元（每个恰好 16 个标量参数）+ 事件驱动
+异步脉冲传播**，构建 7×24 持续在线、按事件触发的智能体网络。目标场景是"永远在线的流式监控"——
+市场异动检测、指标巡检、IoT 阈值告警——不需要大模型重算力，需要的是低延迟、事件驱动与持久工作记忆。
 
 框架内嵌模型为 **CubeGPT**（立方体棱连接：numeric / text / timeseries / image 四模态面 + 顶层输出头，
 规模约 **281K 参数**，纯 numpy 可运行）；插件标准为 **CuteMamen**（固定内核 + N 个专家思考插件，
@@ -109,6 +107,15 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 > 均为真实数据）。
 
 ## 最新进展
+
+### v0.14.6 云端更新 · 精简 README + 开源许可 GPL-3.0
+
+- **开源许可**：MIT → **GPL-3.0**（copyleft，派生/分发需保持开源）。`LICENSE` 全文更新，
+  pyproject 的 `license` 字段、分类器与 README 徽章同步；CuteMamen 兼容声明以
+  GPLv3 §7 额外权限形式保留。
+- **README 微调精简**：压缩对比与插件段的冗长表述，表格与实测数据一律保留，重内容
+  继续下沉至 `docs/`。
+- 纯文档与元数据变更，无行为改动，全量测试应通过。
 
 ### 生态协同 v0.14.5 · 思考怎么"打配合"
 
@@ -214,7 +221,7 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 
 ## 路线图
 
-历史里程碑（v0.2.0–v0.14.5）已全部完成并归档至 [docs/HISTORY.md](docs/HISTORY.md)。
+历史里程碑（v0.2.0–v0.14.6）已全部完成并归档至 [docs/HISTORY.md](docs/HISTORY.md)。
 当前无未完成的版本化里程碑；进行中的线程：**扩展更多真实数据集与真实语料、持续丰富
 工作型 / 服务型插件生态**（无版本承诺），以持续支撑多任务真实基准与在线持续学习验证。
 
@@ -229,7 +236,7 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 * [参与贡献](docs/CONTRIBUTING.md)
 * [发行说明](docs/RELEASE_NOTES.md)
 * [彩蛋（原「菜单·植物大战 VS Code」）](#彩蛋)
-* [开源许可证 GPL](LICENSE)
+* [开源许可证 GPL-3.0](LICENSE)
 
 ### 项目结构
 

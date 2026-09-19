@@ -1,4 +1,23 @@
-﻿# 更新日志
+# 更新日志
+
+## v0.14.6 云端更新 (2026-09-19)
+
+精简 README + 更换开源许可，纯文档与元数据变更。
+
+### 新增
+- **开源许可 MIT → GPL-3.0**：`LICENSE` 全文更新为 GPLv3，pyproject 的 `license` 字段
+  （`GPL-3.0-or-later`）与分类器（`GNU General Public License v3 or later (GPLv3+)`）
+  同步；README 许可徽章与"开源许可证"索引更新；CuteMamen 兼容声明以 GPLv3 §7
+  额外权限形式保留。
+
+### 变更
+- **README 微调精简**：压缩"对比一览""是什么与快速开始"等段的冗长表述，对比表与
+  插件表及实测数据一律保留，重内容继续下沉至 `docs/`。
+- **版本号**：0.14.5 → 0.14.6（pyproject / `__version__` / `pkg.CORE_VERSION` /
+  `min_core_version`）。
+
+### 测试
+- 全量测试应保持通过（纯文档 + 元数据变更，无行为改动）。
 
 ## v0.14.3 植物大战僵尸2 (2026-09-18)
 
