@@ -1187,10 +1187,10 @@ function updateMap(){
     ctx.fillRect((n.x-ox)*sc,(n.y-oy)*sc,NODE_W*sc,80*sc);ctx.globalAlpha=1;}
   // 视口矩形 (当前大画布可见区域 → 小地图)
   const cr=canvas.getBoundingClientRect();
-  const vx=((0-view.ox)/view.scale-ox)*sc, vy=((0-view.oy)/view.scale-oy)*sc;
+  const vpX=((0-view.ox)/view.scale-ox)*sc, vpY=((0-view.oy)/view.scale-oy)*sc;
   const vw2=(cr.width/view.scale)*sc, vh2=(cr.height/view.scale)*sc;
-  ctx.fillStyle='rgba(107,195,255,.10)';ctx.fillRect(vx,vy,vw2,vh2);
-  ctx.strokeStyle='#6bc3ff';ctx.lineWidth=1.5;ctx.strokeRect(vx,vy,vw2,vh2);
+  ctx.fillStyle='rgba(107,195,255,.10)';ctx.fillRect(vpX,vpY,vw2,vh2);
+  ctx.strokeStyle='#6bc3ff';ctx.lineWidth=1.5;ctx.strokeRect(vpX,vpY,vw2,vh2);
 }
 // 小地图拖拽视口 → 平移大画布
 mmEl.addEventListener('mousedown',ev=>{
