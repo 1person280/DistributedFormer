@@ -344,6 +344,16 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
   background:rgba(15,15,15,.85);color:var(--mut);font-size:11px;display:flex;gap:18px;
   align-items:center;border-top:1px solid var(--line);z-index:5;user-select:none}
 #statusBar .s-ok{color:var(--ok)}#statusBar .s-err{color:var(--err)}
+/* ── 鼠标工具切换 (左下角) ── */
+#toolToggle{position:absolute;left:10px;bottom:40px;z-index:6;display:flex;
+  background:rgba(15,15,15,.85);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+#toolToggle button{background:transparent;color:var(--mut);border:0;padding:5px 10px;
+  font-size:11px;cursor:pointer;line-height:1;display:flex;align-items:center;gap:4px}
+#toolToggle button:hover{color:var(--fg)}
+#toolToggle button.active{background:var(--acc);color:#fff}
+#toolToggle .tl-ico{font-size:13px}
+#canvas.tool-drag{cursor:grab}
+#canvas.tool-drag.dragging{cursor:grabbing}
 /* ── 小地图 ── */
 #minimap{position:absolute;right:12px;bottom:36px;width:170px;height:130px;
   background:rgba(20,20,20,.85);border:1px solid var(--line);border-radius:6px;z-index:4}
@@ -522,6 +532,10 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
     <button id="sbBar" class="sb-inline" title="展开侧边栏">☰</button>
     <div id="dropHud"><div class="box">放开以加载工作流/模型文件<small>支持 .json 工作流 或 内核模型 route 文件</small></div></div>
     <div id="statusBar"><span id="stCount">0 节点 · 0 边</span><span id="stZoom"></span><span id="stMsg" class="hint">双击画布搜索添加节点 · 连接端口运行 · 框选/多选/拖拽</span></div>
+    <div id="toolToggle" title="鼠标工具: 框选 / 拖拽画布">
+      <button class="tl active" data-t="select"><span class="tl-ico">☐</span>框选</button>
+      <button class="tl" data-t="drag"><span class="tl-ico">✥</span>拖拽</button>
+    </div>
     <div id="minimap"><canvas id="mmCv"></canvas><span id="mmLabel">MAP</span></div>
   </div>
   <aside id="inspector">
@@ -545,6 +559,7 @@ const selSet=new Set();                           // 多选节点 id 集合
 let clip=null;                                    // 复制/粘贴剪贴板
 const hist={past:[],future:[],max:50};            // 撤销/重做栈
 let spaceHeld=false;                              // 空格键按住(平移)
+let tool='select';                                // 鼠标工具: select=框选 / drag=拖拽画布
 let groups=[];                                    // 选区组 {id,name,nodes:[],color,fold,muted}
 const grpSeq={n:0};                               // 组 id 计数器
 let q=[], qCounter=1, qCurrent=null;              // 执行队列 (客户端)
@@ -778,11 +793,21 @@ function startPan(ev){drag={kind:'pan',ox:view.ox,oy:view.oy,sx:ev.clientX,sy:ev
   canvas.classList.add('dragging');}
 function startRB(ev){drag={kind:'rb',ok:false,orig:worldFrom(ev.clientX,ev.clientY),rect:null};
   rbEl.style.display='none';}
+function setTool(t){
+  tool=t;
+  document.querySelectorAll('#toolToggle .tl').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  canvas.classList.toggle('tool-drag',t==='drag');
+  try{localStorage.setItem('wf_tool',t);}catch(e){}
+}
+document.querySelectorAll('#toolToggle .tl').forEach(b=>{
+  b.addEventListener('click',()=>setTool(b.dataset.t));
+});
+try{const saved=localStorage.getItem('wf_tool');if(saved==='drag'||saved==='select')setTool(saved);}catch(e){}
 canvas.addEventListener('mousedown',ev=>{
   if(ev.target.closest('.node')||ev.target.closest('.socket'))return;
   closeMenu();closeAdd();
   if(ev.button===1||(ev.button===0&&spaceHeld)){startPan(ev);}
-  else if(ev.button===0){startRB(ev);selectOne(null);}
+  else if(ev.button===0){if(tool==='drag'){startPan(ev);}else{startRB(ev);selectOne(null);}}
 });
 canvas.addEventListener('dblclick',ev=>{if(!ev.target.closest('.node'))openAdd(worldFrom(ev.clientX,ev.clientY));});
 window.addEventListener('mousemove',ev=>{
