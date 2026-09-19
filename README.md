@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # DistributedFormer
 
@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.14.3-orange)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.14.5-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#外部动作)
 
 </div>
@@ -111,10 +111,39 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 > 真实基准——全部在真实语料上验证（Rust 编译错误族 + 仓库 Markdown 文档，
 > 均为真实数据）。
 
-## 最新进展（实验记录 · v0.13.1）
+## 最新进展
 
-> 最新版本为 **v0.13.1**（真实时序异常检测）。全部历史实验记录（v0.0–v0.12.0）
-> 与负结果已归档至 [docs/HISTORY.md](docs/HISTORY.md)。
+### 生态协同 v0.14.5 · 思考怎么"打配合"
+
+> **版本命名彩蛋**：`v0.14.5 —— 服务员`，致敬本版落地的**服务型插件**——像餐厅
+> 服务员那样随叫随到、有来有回，供工作型插件 `ask` 召唤。纯命名玩梗。
+
+CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**协同成一套生态：
+
+| 角色 | 职责 | 通信方式 | 代表插件 |
+|---|---|---|---|
+| **核心模型思考** | CubeGPT 内核必要思考：路由 / KV 堆工作记忆 / 顶层输出头 / 节律 | 被路由激活即思考 | `CuteMamenKernel` · `CubeGPTKernel` |
+| **工作型插件** | 完成具体任务/思考（分类、检索、生成） | `ctx.ask(topic, data)` 请求/应答 · `emit` 广播 | RustCoding · JavaCoding · VideoMaking · **TagSearching** |
+| **服务型插件** | 提供能力服务（外挂 LLM、对话、推理） | 被 `ask` 请求 / 被 `think` 路由 | **LLMProvider · Chat** |
+
+**插件互通信（新增 v0.14.5）**：`PluginContext.ask()` 让一个插件在 `on_think`
+内**同步请求**另一插件并直接取回结果（插件↔插件双向）；`run_gpt({模态:数据})`
+让插件**驱动 CubeGPT 全模型**（插件↔核心模型）；`emit()` 维持异步广播。三者让
+插件生态"有来有回"地打配合。
+
+**（新 · 工作型插件）TagSearching · 代码引用检索**：给定一个符号（函数/类/变量），
+纯本地确定性返回**定义点 + 全部引用点**（文件 / 行号 / 上下文片段），词边界精确
+匹配，区分"定义"与"调用"，并排除 `==` 等比较误报。交付
+`plugin/TagSearching.CuteMamen`（route `tagsearch`）。
+
+**（新 · 服务型插件）Chat · 类人对话**：优先经 `ctx.ask("llm")` 调外挂 OpenAI
+兼容 LLM 产出自然回复；未配置后端时回退本地**真人感引擎**（问候 / 情绪共情 /
+问句反射 / 接话+反问，口语化、有来有回）。交付 `plugin/Chat.CuteMamen`
+（route `chat`）。
+
+### 时序实验记录（R5 · R6）
+
+> 历史实验记录（v0.0–v0.13.1）与负结果已归档至 [docs/HISTORY.md](docs/HISTORY.md)。
 
 **（实验 R5）真实时序异常检测基准**，5 种子 × 5 折分层 CV，窗口级二元检测
 （NAB 真实运维指标，2720 个 40 点滑窗，官方告警标注）：
@@ -136,13 +165,15 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 [anomaly_stream_stability.md](src/experiments/anomaly_stream_stability.md)。
 
 **训练材料（真实数据 · 思考插件）**，全部纯真实、无合成，作为端到端训练与
-插件知识迁移的材料（准确率为各插件擅长领域的实测结果，5 种子 × 5 折）：
+插件知识迁移的材料（准确率为各插件擅长领域的实测结果，5 种子 × 5 折）。
 
-「额外参数量」= 插件在冻结水库(**CubeGPT ~281K**)之外随包存档的可学习**读出头权重**
-（线性 softmax 读出层 `W` + 归一化 `mean/scale`，真实特征维逐插件计算）；
-「插件精度」= 参数数值位宽（实测 `float64`）。全部纯真实、无合成，5 种子 × 5 折。
+**① 工作型插件**（真实数据训练 · 冻结水库之外带可学习读出头）
 
-**① 插件个人信息**
+> 「额外参数量」= 插件在冻结水库(**CubeGPT ~281K**)之外随包存档的可学习**读出头权重**
+> （线性 softmax 读出层 `W` + 归一化 `mean/scale`，真实特征维逐插件计算）；
+> 「插件精度」= 参数数值位宽（实测 `float64`）。全部纯真实、无合成，5 种子 × 5 折。
+
+**①·a 插件个人信息**
 
 | 插件名字 | 擅长领域 | 真实数据来源 | 规模与标签 | 额外参数量 | 插件精度 |
 |---|---|---|---|---|---|
@@ -151,11 +182,7 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 | VideoMaking | 视频镜头运动识别 | 真实运镜/分镜曲线 | 200样本 | 3,658 | float64 |
 | OpMetrics | 时序异常检测（窗口级）| NAB 真实运维指标 | 2720滑窗*2类 | 2,370 | float64 |
 
-> 各插件完整标签集 / 数据来源与规模 → [rust_coding.py](src/data/rust_coding.py) · [java_coding.py](src/data/java_coding.py) · [video_motion.py](src/data/video_motion.py) · [metrics_time_series.py](src/data/metrics_time_series.py)；评测协议（5 种子 × 5 折）见 [CUTEMAMEN.md](docs/CUTEMAMEN.md)。
-
-<br />
-
-**② 插件测试结果**
+**①·b 插件测试结果**
 
 | 插件名字 | 准确率 | 准确率评估 |
 |---|---|---|
@@ -164,14 +191,35 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 | VideoMakingPlugin | **61.7%** ± 9.8% | 5 种子 × 5 折，种子均值 56.0–67.0%，超随机 10%（25/25 折）|
 | OperationalMetricsDataset | ACC **48.5%** ± 11.0% / 检出率 **48.9%** ± 14.8% | 5 种子 × 5 折（异常类梯度=10），超随机 50%（9/25 折，多数类 97.4% 下如实偏低）|
 
-数据集定义见 `src/data/`（`rust_coding.py` / `java_coding.py` / `video_motion.py` /
-`metrics_time_series.py`），插件用法见 [docs/CUTEMAMEN.md](docs/CUTEMAMEN.md)。
+> 各插件完整标签集 / 数据来源与规模 → [rust_coding.py](src/data/rust_coding.py) · [java_coding.py](src/data/java_coding.py) · [video_motion.py](src/data/video_motion.py) · [metrics_time_series.py](src/data/metrics_time_series.py)；评测协议（5 种子 × 5 折）见 [CUTEMAMEN.md](docs/CUTEMAMEN.md)。
+
+<br />
+
+**② 服务型插件**（无训练读出头 · 对外提供服务）
+
+**②·a 服务插件清单**
+
+| 插件名字 | 提供服务 | 运行边界 |
+|---|---|---|
+| Chat | 类人对话（route `chat`）| 无训练读出头；优先外挂 LLM，无后端回退本地真人感引擎 |
+| LLMProvider | 外挂 OpenAI 兼容 LLM（route `llm`）| 无训练读出头；OpenAI 兼容接口，默认 API key 认证 |
+
+**②·b 服务插件验证（生态协同实测）**
+
+| 插件名字 | 验证内容 | 结果 |
+|---|---|---|
+| Chat | 无 LLM 后端 → 本地真人感引擎 | 问候 / 情绪 / 问句反射均返回口语化回复，确定性可复现 |
+| Chat ↔ LLMProvider | 经 `ctx.ask("llm")` 插件互通信 | 服务型插件相互协同，回复 `provider=llm` 来自外挂 LLM |
+
+> 服务型插件不携带训练读出头，能力以"对外服务 + 生态协同"衡量；实现见
+> [chat.py](src/cutemamen/chat.py) · [llm_provider.py](src/cutemamen/llm_provider.py)，
+> 插件用法见 [docs/CUTEMAMEN.md](docs/CUTEMAMEN.md)。
 
 ## 路线图
 
-历史里程碑（v0.2.0–v0.13.1）已全部完成并归档至 [docs/HISTORY.md](docs/HISTORY.md)。
-当前无未完成的版本化里程碑；进行中的线程：**扩展更多真实数据集与真实语料**
-（无版本承诺），以持续支撑多任务真实基准与在线持续学习验证。
+历史里程碑（v0.2.0–v0.14.5）已全部完成并归档至 [docs/HISTORY.md](docs/HISTORY.md)。
+当前无未完成的版本化里程碑；进行中的线程：**扩展更多真实数据集与真实语料、持续丰富
+工作型 / 服务型插件生态**（无版本承诺），以持续支撑多任务真实基准与在线持续学习验证。
 
 ## 菜单 · 植物大战 VS Code 代码僵尸
 
@@ -226,7 +274,7 @@ DistributedFormer/
 │   ├── experiments/             # 实验脚本、结果与报告
 │   ├── cli.py                   # dformer 命令行入口
 │   └── selfcheck.py             # 模块自检套件
-├── plugin/                      # .CuteMamen 思考插件独立交付目录
+├── plugin/                      # .CuteMamen 工作型 / 服务型插件独立交付目录
 ├── cache/                       # 统一运行时缓存 (插件/面存档 + pytest, git 忽略)
 └── docs/                        # 架构 / 插件标准 / 实验历史 / 更新日志 / 兼容性 / 贡献指南 / 发行说明
 ```

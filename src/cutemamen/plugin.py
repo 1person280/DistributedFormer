@@ -185,10 +185,38 @@ class PluginContext:
     kernel_version: str
     dim: int
     plugin_name: str = ""
+    kernel: Any = None            # 宿主内核 (ask/run_gpt 回程路由用)
 
-    def emit(self, topic: str, payload: Any) -> None:
-        """插件 → 事件总线发布 (插件间通信)"""
+    def emit(self, topic: str, payload: Any = None) -> None:
+        """插件 → 事件总线发布 (异步 fire-and-forget, 插件间通信)"""
         self.bus.publish(topic, payload)
+
+    def ask(self, topic: str, data: Any = None, *,
+            timeout: Optional[float] = None) -> Any:
+        """同步请求/应答: 向另一插件 (或 CubeGPT 模态) 路由并取回结果
+
+        插件间**双向**通信: 目标插件的 on_think 结果直接作为返回值;
+        目标未注册/未加载/无输出 → None。可重入 (在 on_think 内调用)。
+        timeout 保留参数 (同步路由, 当前即时返回)。
+        """
+        if self.kernel is None:
+            return None
+        event = {"topic": topic}
+        if data is not None:
+            event["data"] = data
+        return self.kernel.request(event)
+
+    def run_gpt(self, inputs: Dict[str, Any], *,
+                timeout: Optional[float] = None) -> Any:
+        """插件 → CubeGPT 全模型推理 (必要思考)
+
+        {模态: 数据} 字典 → CubeGPTKernel 视为 step 语义 (多模态注入,
+        输出脉冲); 含 "topic" 的普通事件 dict → 路由。插件由此驱动
+        CubeGPT, 实现插件↔CubeGPT 双向通信。timeout 保留参数。
+        """
+        if self.kernel is None or not isinstance(inputs, dict):
+            return None
+        return self.kernel.think(inputs)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -284,7 +312,7 @@ class ExpertPlugin:
             "route": self.route,
             "lifecycle": ["on_load", "on_think", "on_unload"],
             "memory_budget": int(self.memory.footprint_bytes()),
-            "min_core_version": "0.14.3",
+            "min_core_version": "0.14.5",
             "memory_levels": list(PluginMemory.LEVELS),
             "core_version": CORE_VERSION,
             "format": "CuteMamen",

@@ -114,7 +114,8 @@ class CuteMamenKernel:
         self._ctx = PluginContext(bus=self.bus,
                                   working_memory=self.working_memory,
                                   kernel_version=_kernel_version(),
-                                  dim=dim)
+                                  dim=dim,
+                                  kernel=self)
         self.total_thinks = 0
         # 运行时安全监控面 (RFC #1, v0.13.0): 默认不启用; enable_security()
         # 后以执行层订阅者形态拦截动作主题, 内核/插件不感知监控面。
@@ -251,12 +252,32 @@ class CuteMamenKernel:
                          {"result": result} if result is not None else None)
         return result
 
+    def request(self, event: Dict[str, Any],
+                *, timeout: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        """同步请求/应答路由 (可重入): 插件→插件 / 插件→CubeGPT 模态
+
+        插件间通信的请求侧: 在 on_think 中调用 ctx.ask(topic, data) 会
+        回到本方法, 解析目标插件并**直接派发** (不再套 think, 避免重复
+        记账), 返回目标 on_think 的结果字典; 未路由/无输出返回 None。
+        CubeGPTKernel 的模态 (numeric/text/...) 也在此解析 —— 插件可以
+        借此驱动 CubeGPT 单模态, 或经 ctx.run_gpt() 驱动全模型 step。
+        """
+        topic = event.get("topic")
+        plugin = self._resolve(topic)
+        if plugin is None:
+            self.bus.publish("kernel.unrouted",
+                             {"topic": topic, "request": True})
+            return None
+        self.bus.publish("kernel.request", {"topic": topic})
+        return self._dispatch(plugin, event)
+
     def _ctx_for(self, plugin: ExpertPlugin) -> PluginContext:
         return PluginContext(bus=self.bus,
                              working_memory=self.working_memory,
                              kernel_version=_kernel_version(),
                              dim=self.dim,
-                             plugin_name=plugin.name)
+                             plugin_name=plugin.name,
+                             kernel=self)
 
     # ── 内存预算淘汰 ────────────────────────────────────────
     def total_footprint_mb(self) -> float:

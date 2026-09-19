@@ -25,6 +25,8 @@ from .face_bridge import FacePlugin
 from .rust_coding import RustCodingPlugin
 from .video_making import VideoMakingPlugin
 from .java_coding import JavaCodingPlugin
+from .tag_searching import TagSearchingPlugin
+from .chat import ChatPlugin
 from .kernel import CubeGPTKernel, CuteMamenKernel, WorkingMemory
 from .migrate import main as migrate_main
 
@@ -47,6 +49,8 @@ __all__ = [
     "RustCodingPlugin",
     "VideoMakingPlugin",
     "JavaCodingPlugin",
+    "TagSearchingPlugin",
+    "ChatPlugin",
     "CubeGPTKernel",
     "CuteMamenKernel",
     "WorkingMemory",
