@@ -232,28 +232,35 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 * [兼容性规范](docs/COMPATIBILITY.md)
 * [参与贡献](docs/CONTRIBUTING.md)
 * [发行说明](docs/RELEASE_NOTES.md)
+* [彩蛋（原「菜单·植物大战 VS Code」）](#彩蛋)
 * [开源许可证 MIT](LICENSE)
 
 ### 项目结构
 
-```
-DistributedFormer/
-├── src/                        # Python 包 (v0.8.6 扁平化)
-│   ├── core/                    # 脉冲单元 / 分形层 / KV 堆 / CubeGPT / 模态面 pkg
-│   ├── cutemamen/               # CuteMamen 插件标准: 内核 / 插件 / 事件总线 / 包格式 / LoRA 桥接 / 迁移工具 / Rust·Java coding 插件
-│   ├── codec/                   # 数值·文本·时序 → 脉冲编码; 脉冲 → 动作解码
-│   ├── agents/                  # 5 类脉冲智能体
-│   ├── workflow/                # 工作流引擎 + 消息路由
-│   ├── data/                    # 真实数据集: Rust·Java 编码基准 / Markdown / 视频运镜 / 时序异常 (v0.14.0)
-│   ├── training/                # 监督/STDP 训练器 + 读出层验证协议
-│   ├── deployment/              # Docker / K8s / Redis / Prometheus / RedisKVStack / openai_server / web_ui
-│   ├── security_monitor/        # 运行时安全监控 (意图探针 / 熔断 / 行为指纹 / 审计溯源)
-│   ├── demos/                   # 股票监控端到端演示 / CubeGPT 终端聊天
-│   ├── tests/                   # pytest 测试
-│   ├── experiments/             # 实验脚本、结果与报告
-│   ├── cli.py                   # dformer 命令行入口
-│   └── selfcheck.py             # 模块自检套件
-├── plugin/                      # .CuteMamen 工作型 / 服务型插件独立交付目录
-├── cache/                       # 统一运行时缓存 (插件/面存档 + pytest, git 忽略)
-└── docs/                        # 架构 / 插件标准 / 实验历史 / 更新日志 / 兼容性 / 贡献指南 / 发行说明
-```
+**src 内目录**（Python 包，扁平化）：
+
+| 目录 | 说明 |
+|---|---|
+| `core` | 脉冲单元 / 分形层 / KV 堆 / CubeGPT / 模态面 pkg |
+| `cutemamen` | CuteMamen 插件标准：内核 / 插件 / 事件总线 / 包格式 / LoRA 桥接 / 迁移工具 / Rust·Java coding 插件 |
+| `codec` | 数值·文本·时序 → 脉冲编码；脉冲 → 动作解码 |
+| `agents` | 5 类脉冲智能体 |
+| `workflow` | 工作流引擎 + 消息路由 |
+| `data` | 真实数据集：Rust·Java 编码基准 / Markdown / 视频运镜 / 时序异常（v0.14.0） |
+| `training` | 监督/STDP 训练器 + 读出层验证协议 |
+| `deployment` | Docker / K8s / Redis / Prometheus / RedisKVStack / openai_server / web_ui |
+| `security_monitor` | 运行时安全监控（意图探针 / 熔断 / 行为指纹 / 审计溯源） |
+| `demos` | 股票监控端到端演示 / CubeGPT 终端聊天 |
+| `tests` | pytest 测试 |
+| `experiments` | 实验脚本、结果与报告 |
+
+> 入口 / 自检文件：`cli.py`（dformer 命令行入口）· `selfcheck.py`（模块自检套件）· `__init__.py` · `__main__.py`。
+
+**src 外目录**：
+
+| 目录 | 说明 |
+|---|---|
+| `plugin` | .CuteMamen 工作型 / 服务型插件独立交付目录 |
+| `cache` | 统一运行时缓存（插件/面存档 + pytest，git 忽略） |
+| `docs` | 架构 / 插件标准 / 实验历史 / 更新日志 / 兼容性 / 贡献指南 / 发行说明 / 彩蛋 |
+| `.github` | GitHub 工作流（CI） |
