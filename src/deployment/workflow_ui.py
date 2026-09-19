@@ -344,9 +344,9 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
   background:rgba(15,15,15,.85);color:var(--mut);font-size:11px;display:flex;gap:18px;
   align-items:center;border-top:1px solid var(--line);z-index:5;user-select:none}
 #statusBar .s-ok{color:var(--ok)}#statusBar .s-err{color:var(--err)}
-/* ── 鼠标工具切换 (左下角) ── */
-#toolToggle{position:absolute;left:10px;bottom:40px;z-index:6;display:flex;
-  background:rgba(15,15,15,.85);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+/* ── 鼠标工具切换 (顶部工具条) ── */
+#toolToggle{margin-left:14px;display:flex;align-items:center;background:#1b1b1b;
+  border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-shrink:0}
 #toolToggle button{background:transparent;color:var(--mut);border:0;padding:5px 10px;
   font-size:11px;cursor:pointer;line-height:1;display:flex;align-items:center;gap:4px}
 #toolToggle button:hover{color:var(--fg)}
@@ -356,7 +356,8 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
 #canvas.tool-drag.dragging{cursor:grabbing}
 /* ── 小地图 ── */
 #minimap{position:absolute;right:12px;bottom:36px;width:170px;height:130px;
-  background:rgba(20,20,20,.85);border:1px solid var(--line);border-radius:6px;z-index:4}
+  background:rgba(20,20,20,.85);border:1px solid var(--line);border-radius:6px;z-index:4;
+  cursor:pointer}
 #minimap canvas{width:100%;height:100%;display:block}
 #mmLabel{position:absolute;left:8px;top:4px;font-size:9px;color:var(--mut)}
 /* ── 右侧面板 ── */
@@ -497,6 +498,10 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
 <header class="toolbar">
   <button id="sbToggle" class="sb-toggle" title="侧边栏 (Ctrl+B)">☰</button>
   <div class="brand"><span class="logo">◈</span>DistributedFormer<span class="sub">workflow</span></div>
+  <div id="toolToggle" title="鼠标工具: 框选 / 拖拽画布">
+    <button class="tl active" data-t="select"><span class="tl-ico">☐</span>框选</button>
+    <button class="tl" data-t="drag"><span class="tl-ico">✥</span>拖拽</button>
+  </div>
   <div class="spacer"></div>
   <input id="wfName" value="my_graph" placeholder="工作流名称">
   <button id="btnRun" class="btn run" title="运行 (Ctrl+Enter)">▶ Run</button>
@@ -532,10 +537,6 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
     <button id="sbBar" class="sb-inline" title="展开侧边栏">☰</button>
     <div id="dropHud"><div class="box">放开以加载工作流/模型文件<small>支持 .json 工作流 或 内核模型 route 文件</small></div></div>
     <div id="statusBar"><span id="stCount">0 节点 · 0 边</span><span id="stZoom"></span><span id="stMsg" class="hint">双击画布搜索添加节点 · 连接端口运行 · 框选/多选/拖拽</span></div>
-    <div id="toolToggle" title="鼠标工具: 框选 / 拖拽画布">
-      <button class="tl active" data-t="select"><span class="tl-ico">☐</span>框选</button>
-      <button class="tl" data-t="drag"><span class="tl-ico">✥</span>拖拽</button>
-    </div>
     <div id="minimap"><canvas id="mmCv"></canvas><span id="mmLabel">MAP</span></div>
   </div>
   <aside id="inspector">
@@ -588,6 +589,11 @@ function applyView(){world.style.transform=`translate(${view.ox}px,${view.oy}px)
 function sockWorld(el){const r=el.getBoundingClientRect(),c=rect();
   const sx=r.left+r.width/2-c.left, sy=r.top+r.height/2-c.top;
   return [(sx-view.ox)/view.scale,(sy-view.oy)/view.scale];}
+
+// ── 拖拽流水线 (rAF 合帧, 避免每帧重建连线/重绘小地图导致的卡顿) ──
+let _mmQ=false,_edQ=false;
+function scheduleMap(){if(_mmQ)return;_mmQ=true;requestAnimationFrame(()=>{_mmQ=false;updateMap();});}
+function scheduleEdges(){if(_edQ)return;_edQ=true;requestAnimationFrame(()=>{_edQ=false;renderEdges();updateMap();});}
 
 // ── 渲染节点 ─────────────────────────────
 const svg=$('edges');
@@ -811,9 +817,20 @@ canvas.addEventListener('mousedown',ev=>{
 });
 canvas.addEventListener('dblclick',ev=>{if(!ev.target.closest('.node'))openAdd(worldFrom(ev.clientX,ev.clientY));});
 window.addEventListener('mousemove',ev=>{
+  // 小地图拖拽 → 平移大画布 (独立于主 drag 状态)
+  if(mapDrag){
+    const mmr=mmEl.getBoundingClientRect();
+    const mx=(ev.clientX-mmr.left)*2, my=(ev.clientY-mmr.top)*2;
+    const sc=mapCfg.sc;
+    const vx=mapCfg.ox+(mx-mapDrag.dx)/sc;
+    const vy=mapCfg.oy+(my-mapDrag.dy)/sc;
+    view.ox=-vx*view.scale; view.oy=-vy*view.scale; clampView();
+    applyView();scheduleMap();
+    return;
+  }
   if(!drag)return;
   const r=rect(),sx=ev.clientX-r.left,sy=ev.clientY-r.top,w=worldFrom(ev.clientX,ev.clientY);
-  if(drag.kind==='pan'){view.ox=drag.ox+(sx-drag.sx);view.oy=drag.oy+(sy-drag.sy);applyView();updateMap();}
+  if(drag.kind==='pan'){view.ox=drag.ox+(sx-drag.sx);view.oy=drag.oy+(sy-drag.sy);applyView();scheduleMap();}
   else if(drag.kind==='rb'){
     const a=drag.orig,b=w;
     const x0=Math.min(a.x,b.x),y0=Math.min(a.y,b.y),x1=Math.max(a.x,b.x),y1=Math.max(a.y,b.y);
@@ -836,7 +853,7 @@ window.addEventListener('mousemove',ev=>{
       if(nx!==nd.x||ny!==nd.y)drag.moved=true;
       nd.x=nx;nd.y=ny;}
     document.querySelectorAll('.node').forEach(el=>{const nd=nodes.find(x=>x.id===el.dataset.id);if(nd){el.style.left=nd.x+'px';el.style.top=nd.y+'px';}});
-    renderEdges();updateMap();}
+    scheduleEdges();}
   else if(drag.kind==='edge'){
     if(drag.ghost)drag.ghost.remove();
     const el=drag.fromEl; if(!el){drag=null;return;}
@@ -850,6 +867,7 @@ window.addEventListener('mousemove',ev=>{
   }
 });
 window.addEventListener('mouseup',ev=>{
+  if(mapDrag){mapDrag=null;scheduleMap();return;}
   if(!drag)return;
   if(drag.kind==='edge'){
     if(drag.ghost)drag.ghost.remove();
@@ -873,7 +891,8 @@ window.addEventListener('mouseup',ev=>{
   else if(drag.kind==='node'){
     if(drag.moved)pushHist();
     if(drag.el)drag.el.querySelector('.node-head').classList.remove('dragging');
-  }
+    renderEdges();updateMap();}
+  else if(drag.kind==='pan'){renderEdges();updateMap();}
   canvas.classList.remove('dragging');drag=null;
 });
 canvas.addEventListener('wheel',ev=>{
@@ -1139,7 +1158,19 @@ function addNode(it){
 }
 
 // ── 小地图 ───────────────────────────────
-const mmCv=$('mmCv');
+const mmCv=$('mmCv'), mmEl=$('minimap');
+let mapCfg={sc:1,ox:0,oy:0};                       // 世界→小地图映射 (mapx=(world-ox)*sc)
+let mapDrag=null;                                  // 小地图视口拖拽 {dx,dy} (抓取点到视口左上角的偏移)
+function clampView(){                              // 把视口限制在内容附近, 防止拖丢图
+  const cr=canvas.getBoundingClientRect();
+  const vw=cr.width/view.scale, vh=cr.height/view.scale;
+  let minX=0,minY=0,maxX=400,maxY=300;
+  if(nodes.length){minX=Math.min(...nodes.map(n=>n.x));minY=Math.min(...nodes.map(n=>n.y));
+    maxX=Math.max(...nodes.map(n=>n.x+NODE_W));maxY=Math.max(...nodes.map(n=>n.y+90));}
+  const left=Math.max(minX-300,Math.min(-view.ox/view.scale,maxX+300-vw));
+  const top=Math.max(minY-300,Math.min(-view.oy/view.scale,maxY+300-vh));
+  view.ox=-left*view.scale; view.oy=-top*view.scale;
+}
 function updateMap(){
   const cv=mmCv,dpr=1;cv.width=340;cv.height=260;
   const ctx=cv.getContext('2d');ctx.clearRect(0,0,cv.width,cv.height);
@@ -1150,18 +1181,27 @@ function updateMap(){
   const vw=maxX-minX+pad*2,vy=maxY-minY+pad*2;
   const sx=sw/vw,sy=sh/vy,sc=Math.min(sx,sy);
   const ox=minX-pad,oy=minY-pad;
+  mapCfg={sc,ox,oy};
   ctx.fillStyle='rgba(255,255,255,0.04)';ctx.fillRect(0,0,sw,sh);
   for(const n of nodes){ctx.fillStyle=TYPES[n.type].color;ctx.globalAlpha=.85;
     ctx.fillRect((n.x-ox)*sc,(n.y-oy)*sc,NODE_W*sc,80*sc);ctx.globalAlpha=1;}
-  // 视口矩形
+  // 视口矩形 (当前大画布可见区域 → 小地图)
   const cr=canvas.getBoundingClientRect();
-  ctx.strokeStyle='#6bc3ff';ctx.lineWidth=1.5;ctx.strokeStyle='#6bc3ff';
-  ctx.strokeRect(((0-view.ox)/view.scale-ox)*sc,((0-view.oy)/view.scale-oy)*sc,
-    (cr.width/view.scale)*sc,(cr.height/view.scale)*sc);
+  const vx=((0-view.ox)/view.scale-ox)*sc, vy=((0-view.oy)/view.scale-oy)*sc;
+  const vw2=(cr.width/view.scale)*sc, vh2=(cr.height/view.scale)*sc;
+  ctx.fillStyle='rgba(107,195,255,.10)';ctx.fillRect(vx,vy,vw2,vh2);
+  ctx.strokeStyle='#6bc3ff';ctx.lineWidth=1.5;ctx.strokeRect(vx,vy,vw2,vh2);
 }
-// 调整 minimap 尺寸
-$('minimap').addEventListener('click',ev=>{const w=worldFrom(0,0);
-  const x=ev.offsetX/170,y=ev.offsetY/130;});
+// 小地图拖拽视口 → 平移大画布
+mmEl.addEventListener('mousedown',ev=>{
+  ev.preventDefault();ev.stopPropagation();
+  const r=mmEl.getBoundingClientRect();
+  const mx=(ev.clientX-r.left)*2, my=(ev.clientY-r.top)*2;   // 换算到 cv 坐标(340x260)
+  const sc=mapCfg.sc;
+  const vmx=(-view.ox/view.scale-mapCfg.ox)*sc;              // 视口左上角在小地图中的位置
+  const vmy=(-view.oy/view.scale-mapCfg.oy)*sc;
+  mapDrag={dx:mx-vmx, dy:my-vmy};
+});
 
 // ── 运行 (客户端队列 + 逐节点高亮执行) ────
 $('btnRun').onclick=enqueue;
