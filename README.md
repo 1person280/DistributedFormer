@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.14.6-orange)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.0-orange)](docs/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#外部动作)
 
 </div>
@@ -107,6 +107,14 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 > 均为真实数据）。
 
 ## 最新进展
+
+### v0.16.0 工作流 UI 大版本 · 对齐 ComfyUI
+
+- **节点内联控件**：滑块/数字/文本/下拉直接画在节点 body，与参数面板双向同步。
+- **左侧浮动侧栏**：Generate 队列徽章 + `Queue`/`Load`/`Explorer` 三页签，队列可暂停/排队。
+- **节点增强**：状态色、逐节点拓扑执行高亮、Bypass/Mute、Reroute 直通、备注 (subtitle)。
+- **选区组 (Group)**、**拖放 `.json`/模型**、**更多快捷键**（Ctrl+A/方向键/Ctrl+G/Ctrl+B）。
+- 版本 0.15.x → **0.16.0**（pyproject / `__version__` / `CORE_VERSION` / `min_core_version`）。
 
 ### v0.14.6 云端更新 · 精简 README + 开源许可 GPL-3.0
 

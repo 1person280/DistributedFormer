@@ -159,7 +159,7 @@ def cmd_chat(args):
 
 
 def cmd_ui(args):
-    """Web 图形界面: 本地浏览器控制台 (内核/插件/思考/基准, v0.12.0)"""
+    """Web 图形界面: 本地浏览器控制台 + 节点图工作流 (v0.16.0)"""
     from src.deployment.web_ui import main as run_ui
     run_ui(host=args.host, port=args.port, depth=args.depth, dim=args.dim)
 
@@ -265,9 +265,9 @@ def build_parser():
     p_chat.set_defaults(func=cmd_chat)
 
     p_ui = sub.add_parser(
-        "ui", help="Web 图形界面: 本地浏览器控制台 (v0.12.0)")
+        "ui", help="Web 图形界面: 控制台 + 节点图工作流 (v0.16.0)")
     p_ui.add_argument("--host", default="127.0.0.1")
-    p_ui.add_argument("--port", type=int, default=8001)
+    p_ui.add_argument("--port", type=int, default=8011)
     p_ui.add_argument("--depth", type=int, default=1, choices=[0, 1, 2])
     p_ui.add_argument("--dim", type=int, default=16)
     p_ui.set_defaults(func=cmd_ui)

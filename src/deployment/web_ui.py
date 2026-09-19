@@ -1,18 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-Web 图形界面 (v0.12.0) — dformer ui
+Web 图形界面 (v0.16.0) — dformer ui
 
 零第三方依赖的本地浏览器控制台, 复用 openai_server 的 stdlib http.server
 风格 (ThreadingHTTPServer + BaseHTTPRequestHandler), 单页 HTML/JS 内嵌,
 无外部资源/框架。
 
 路由:
-  GET  /                → 单页图形化控制台
-  GET  /api/status      → {version, dim, plugins:[{name,route,base_model}]}
-  GET  /api/benchmarks  → 三真实任务基准汇总 (benchmark_all_results.json)
-  POST /api/think       → body {topic, data}; kernel.think(...) → 结果
+  GET  /                       → 单页图形化控制台
+  GET  /workflow               → ComfyUI 式节点图工作流页
+  GET  /api/status             → {version, dim, plugins:[{name,route,base_model}]}
+  GET  /api/benchmarks         → 三真实任务基准汇总 (benchmark_all_results.json)
+  POST /api/think              → body {topic, data}; kernel.think(...) → 结果
+  GET  /api/workflow/models    → 节点调色板 (内核中的真实模型/插件)
+  GET  /api/workflow/list      → {workflows, presets}
+  POST /api/workflow/run       → body {workflow}; 拓扑执行 → {results, log}
+  POST /api/workflow/save      → body {name, workflow}
+  POST /api/workflow/load      → body {name} → {workflow, is_preset}
 
-启动: dformer ui --host 127.0.0.1 --port 8001 --depth 1 --dim 16
+启动: dformer ui --host 127.0.0.1 --port 8011 --depth 1 --dim 16
 """
 
 import json
@@ -24,8 +30,9 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from src.cutemamen.kernel import CuteMamenKernel, DEFAULT_PKG_DIR
+from src.deployment.workflow_ui import WorkflowEngine, WORKFLOW_PAGE
 
-_UI_VERSION = "0.12.0"
+_UI_VERSION = "0.16.0"
 
 
 def _json_default(o: Any) -> Any:
@@ -45,6 +52,7 @@ class UIServer:
         self.kernel = CuteMamenKernel(dim=dim, pkg_dir=DEFAULT_PKG_DIR)
         self.started = time.time()
         self.plugins = self._build_plugins()
+        self.workflow = WorkflowEngine(self.kernel)
 
     def _build_plugins(self) -> List[Dict[str, str]]:
         from src.cutemamen.rust_coding import RustCodingPlugin
@@ -95,7 +103,7 @@ class UIServer:
 _PAGE = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8"><title>DistributedFormer v0.12.0 图形控制台</title>
+<meta charset="utf-8"><title>DistributedFormer v0.16.0 图形控制台</title>
 <style>
   :root{--bg:#0f1420;--card:#1a2133;--line:#2a3350;--fg:#e6ecff;--mut:#8aa0c8;
         --acc:#5b8cff;--ok:#35d07f;--warn:#ffb454;}
@@ -129,7 +137,11 @@ _PAGE = """<!DOCTYPE html>
 </style></head>
 <body>
 <header>
-  <h1>DistributedFormer <span class="badge">v0.12.0 · 图形化</span></h1>
+  <h1>DistributedFormer <span class="badge">v0.16.0 · 图形化</span></h1>
+  <nav style="display:flex;gap:8px;margin-left:8px">
+    <a href="/" style="color:var(--acc);padding:2px 10px;text-decoration:none;border:1px solid var(--line);border-radius:8px">控制台</a>
+    <a href="/workflow" style="color:var(--fg);padding:2px 10px;text-decoration:none;border:1px solid var(--line);border-radius:8px">工作流</a>
+  </nav>
   <div class="kv" id="status"></div>
 </header>
 <main>
@@ -186,7 +198,7 @@ loadStatus();loadBench();
 
 
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "DistributedFormerUI/0.12.0"
+    server_version = "DistributedFormerUI/0.16.0"
 
     @property
     def ui(self) -> UIServer:
@@ -209,34 +221,58 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # 精简日志
         print(f"[ui] {self.command} {self.path} — {fmt % args}")
 
+    def _read_body(self) -> Dict[str, Any]:
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            return json.loads(self.rfile.read(length) or b"{}")
+        except Exception as exc:
+            return {"_bad": f"bad json: {exc}"}
+
     # ── GET ───────────────────────────────────────────────
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             body = _PAGE.encode("utf-8")
             self._send(200, body, "text/html")
+        elif self.path == "/workflow":
+            self._send(200, WORKFLOW_PAGE.encode("utf-8"), "text/html")
         elif self.path == "/api/status":
             self._json(200, self.ui.status())
         elif self.path == "/api/benchmarks":
             self._json(200, self.ui.benchmarks())
+        elif self.path == "/api/workflow/models":
+            self._json(200, {"ok": True, "models": self.ui.workflow.list_models()})
+        elif self.path == "/api/workflow/list":
+            self._json(200, {"ok": True, **self.ui.workflow.list_workflows()})
         else:
             self._json(404, {"error": "not found"})
 
     # ── POST ──────────────────────────────────────────────
     def do_POST(self):
-        if self.path != "/api/think":
-            return self._json(404, {"error": "not found"})
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            payload = json.loads(self.rfile.read(length) or b"{}")
-        except Exception as exc:
-            return self._json(400, {"ok": False,
-                                    "error": f"bad json: {exc}"})
-        topic = payload.get("topic", "")
-        data = payload.get("data")
-        self._json(200, self.ui.think(topic, data))
+        if self.path == "/api/think":
+            payload = self._read_body()
+            topic = payload.get("topic", "")
+            data = payload.get("data")
+            return self._json(200, self.ui.think(topic, data))
+        if self.path == "/api/workflow/run":
+            payload = self._read_body()
+            if "_bad" in payload:
+                return self._json(400, {"ok": False, "error": payload["_bad"]})
+            return self._json(200, self.ui.workflow.run(payload.get("workflow", {})))
+        if self.path == "/api/workflow/save":
+            payload = self._read_body()
+            if "_bad" in payload:
+                return self._json(400, {"ok": False, "error": payload["_bad"]})
+            return self._json(200, self.ui.workflow.save(
+                payload.get("name", ""), payload.get("workflow", {})))
+        if self.path == "/api/workflow/load":
+            payload = self._read_body()
+            if "_bad" in payload:
+                return self._json(400, {"ok": False, "error": payload["_bad"]})
+            return self._json(200, self.ui.workflow.load(payload.get("name", "")))
+        return self._json(404, {"error": "not found"})
 
 
-def serve(host: str = "127.0.0.1", port: int = 8001,
+def serve(host: str = "127.0.0.1", port: int = 8011,
           depth: int = 1, dim: int = 16) -> None:
     server = ThreadingHTTPServer((host, port), _Handler)
     server.ui = UIServer(depth=depth, dim=dim)  # type: ignore[attr-defined]
@@ -249,7 +285,7 @@ def serve(host: str = "127.0.0.1", port: int = 8001,
         server.shutdown()
 
 
-def main(host: str = "127.0.0.1", port: int = 8001,
+def main(host: str = "127.0.0.1", port: int = 8011,
          depth: int = 1, dim: int = 16) -> None:
     serve(host=host, port=port, depth=depth, dim=dim)
 
