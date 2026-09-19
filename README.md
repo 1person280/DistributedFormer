@@ -230,7 +230,9 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 ## 路线图
 
 历史里程碑（v0.2.0–v0.14.6）已全部完成并归档至 [docs/HISTORY.md](docs/HISTORY.md)。
-当前无未完成的版本化里程碑；进行中的线程：**扩展更多真实数据集与真实语料、持续丰富
+当前主线：**图形化节点工作流 对齐 ComfyUI**，迈向正式版 **1.0.0**。
+实现进度、待补齐项与 1.0.0 验收清单见 [ComfyUI 差距路线图](docs/COMFYUI_GAP_ROADMAP.md)；
+补完该清单即可发布正式版 1.0.0。并行线程：**扩展更多真实数据集与真实语料、持续丰富
 工作型 / 服务型插件生态**（无版本承诺），以持续支撑多任务真实基准与在线持续学习验证。
 
 ## 文档
@@ -243,6 +245,7 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 * [兼容性规范](docs/COMPATIBILITY.md)
 * [参与贡献](docs/CONTRIBUTING.md)
 * [发行说明](docs/RELEASE_NOTES.md)
+* [ComfyUI 差距路线图 → 1.0.0](docs/COMFYUI_GAP_ROADMAP.md)
 * [彩蛋（原「菜单·植物大战 VS Code」）](#彩蛋)
 * [开源许可证 GPL-3.0](LICENSE)
 * [开源许可证译文（仅供参考，不具备法律效力）](docs/LICENSE-Chinese.md)
