@@ -339,6 +339,22 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
 .socket.in{background:var(--green);left:-9px}
 .socket.out{background:var(--blue);right:-9px}
 .socket:hover{transform:scale(1.2)}
+/* 具名端口区 (多端口按名路由) */
+.node-ports{position:relative;background:rgba(255,255,255,.02);padding:2px 16px}
+.node-ports .pr{position:relative;height:24px;display:flex;align-items:center;
+  justify-content:space-between}
+.node-ports .p{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--mut);
+  min-width:0;cursor:crosshair;line-height:1}
+.node-ports .p.in{justify-content:flex-start}
+.node-ports .p.out{justify-content:flex-end;text-align:right}
+.node-ports .p .dot{width:13px;height:13px;border-radius:50%;border:2px solid var(--node);
+  flex-shrink:0;box-sizing:border-box;transition:transform .1s}
+.node-ports .p .lbl{user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node-ports .p.in .dot{background:var(--green);margin-left:-5px}
+.node-ports .p.out .dot{background:var(--blue);margin-right:-5px}
+.node-ports .p:hover .dot{transform:scale(1.25)}
+.node-ports .p.in:hover .lbl{color:var(--ok)}
+.node-ports .p.out:hover .lbl{color:var(--acc)}
 /* ── 状态栏 / 信息条 ── */
 #statusBar{position:absolute;left:0;right:0;bottom:0;height:24px;padding:3px 10px;
   background:rgba(15,15,15,.85);color:var(--mut);font-size:11px;display:flex;gap:18px;
@@ -467,7 +483,7 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
 .node.status-run{outline:2px solid var(--warn);outline-offset:2px}
 /* 旁通 / 禁用 */
 .node.bypass{opacity:.4}
-.node.bypass .node-head,.node.bypass .socket{filter:saturate(.3) grayscale(.4)}
+.node.bypass .node-head,.node.bypass .dot{filter:saturate(.3) grayscale(.4)}
 .node.muted .node-head .pt{text-decoration:line-through;opacity:.6}
 /* 节点标题类别色 + 状态圆点徽章 */
 .node-head .cat{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:6px}
@@ -568,9 +584,9 @@ let running=false, runAbort=false, runSeq=0;      // 运行状态 / 递增取消
 let sidebarCollapsed=false, sbTabEt='queue';      // 侧栏状态
 const CAT_COLOR={input:'#3a9d5d',model:'#3b5bff',output:'#c99a2e',reroute:'#8f8f8f'};
 const NODE_W=210, SOCK_Y=28;                       // 节点宽, socket 世界Y(标题区)
-const TYPES={input:{title:'输入',color:'#3a9d5d',ins:[],outs:['out']},
-             model:{title:'模型',color:'var(--blue)',ins:['in'],outs:['out']},
-             output:{title:'输出',color:'#c99a2e',ins:['in'],outs:[]},
+const TYPES={input:{title:'输入',color:'#3a9d5d',ins:[],outs:['data','meta']},
+             model:{title:'模型',color:'var(--blue)',ins:['seq','config'],outs:['logits','loss']},
+             output:{title:'输出',color:'#c99a2e',ins:['data','logits','loss'],outs:[]},
              reroute:{title:'直通',color:'#8f8f8f',ins:['in'],outs:['out']}};
 const DEF={input:{topic:'',data:'fn main(){}'},
            model:{route:'',data:null},
@@ -653,6 +669,21 @@ function renderNodes(){
     const bodyTxt=n.type==='model'?`<span class="route">${n.params.route||'(未选路由)'}</span>`
       : n.type==='input'?`topic: ${JSON.stringify(n.params.topic||'')}` : '';
     const note=n.note?`<div class="note">${esc(n.note)}</div>`:'';
+    // 具名端口区 (in 靠左, out 靠右, 按端口名逐行排布)
+    let portsHtml='';
+    const ip4=d.ins||[], op4=d.outs||[];
+    if(ip4.length||op4.length){
+      const rows=Math.max(ip4.length,op4.length);
+      let acc='';
+      for(let i=0;i<rows;i++){
+        const inp=ip4[i], outp=op4[i];
+        acc+=`<div class="pr">`
+           +(inp?`<div class="p in" data-node="${n.id}" data-k="in" data-name="${inp}"><i class="dot"></i><span class="lbl">${inp}</span></div>`:'<span></span>')
+           +(outp?`<div class="p out" data-node="${n.id}" data-k="out" data-name="${outp}"><span class="lbl">${outp}</span><i class="dot"></i></div>`:'<span></span>')
+           +`</div>`;
+      }
+      portsHtml=`<div class="node-ports">${acc}</div>`;
+    }
     el.innerHTML=
       `<div class="node-head" style="background:${d.color}">
          <span style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
@@ -661,6 +692,7 @@ function renderNodes(){
            ${(n._runMs!==undefined)?`<span class="runtime">${n._runMs}ms</span>`:''}
          </span>
          <button class="del" title="删除节点">✕</button></div>
+       ${portsHtml}
        <div class="node-body">${bodyTxt}
          ${preview?`<pre class="pv">${preview}</pre>`:''}
          ${note}
@@ -672,18 +704,13 @@ function renderNodes(){
     if(n._runStatus==='ok')el.classList.add('status-ok');
     else if(n._runStatus==='err')el.classList.add('status-err');
     if(hiddenIds.has(n.id))el.classList.add('hiddennode');
-    // sockets
-    const style=`top:${SOCK_Y}px;`;
-    if(d.ins.length)el.insertAdjacentHTML('beforeend',
-      `<div class="socket in" data-node="${n.id}" data-k="in" style="${style}"></div>`);
-    if(d.outs.length)el.insertAdjacentHTML('beforeend',
-      `<div class="socket out" data-node="${n.id}" data-k="out" style="${style}"></div>`);
     world.appendChild(el);
-    el.querySelector('.node-head').addEventListener('mousedown',ev=>startNodeDrag(ev,n,el));
     el.querySelector('.node-head').addEventListener('dblclick',ev=>{ev.stopPropagation();toggleCollapse(n);});
-    el.addEventListener('mousedown',ev=>{ev.stopPropagation();if(ev.shiftKey)toggleSel(n);else selectOne(n);});
+    el.addEventListener('mousedown',ev=>{if(ev.button!==0)return;
+      if(ev.target.closest('input,textarea,select,button,a,textarea'))return;
+      ev.stopPropagation();startNodeDrag(ev,n,el);});
     el.querySelector('.del').addEventListener('click',ev=>{ev.stopPropagation();deleteNodes(new Set([n.id]));});
-    el.querySelectorAll('.socket').forEach(s=>s.addEventListener('mousedown',ev=>startSock(ev,s,n)));
+    el.querySelectorAll('.node-ports .p').forEach(s=>s.addEventListener('mousedown',ev=>startSock(ev,s,n)));
     // 内联控件绑定 (双向同步 n.params / 属性面板)
     el.querySelectorAll('.node-widget [data-w]').forEach(w=>{
       const apply=(w2,q)=>{
@@ -762,13 +789,20 @@ function groupOf(nid){return groups.find(g=>g.nodes.includes(nid));}
 function trunc(s,n){s=typeof s==='string'?s:JSON.stringify(s);return s.length>n?s.slice(0,n)+'…':s;}
 
 // ── 渲染连线 ─────────────────────────────
+function portEl(nodeEl,kind,name){
+  const list=nodeEl.querySelectorAll('.p.'+kind);
+  for(const el of list)if(el.dataset.name===name)return el;
+  return list[0]||null;
+}
 function renderEdges(){
   svg.innerHTML='';
   const els={};world.querySelectorAll('.node').forEach(e=>els[e.dataset.id]=e);
   for(const e of edges){
     const a=els[e.from], b=els[e.to]; if(!a||!b)continue;
-    const [x1,y1]=sockWorld(a.querySelector('.socket.out'));
-    const [x2,y2]=sockWorld(b.querySelector('.socket.in'));
+    const co=portEl(a,'out',e.from_port), ci=portEl(b,'in',e.to_name);
+    if(!co||!ci)continue;
+    const [x1,y1]=sockWorld(co.querySelector('.dot'));
+    const [x2,y2]=sockWorld(ci.querySelector('.dot'));
     const p=path(x1,y1,x2,y2,(e.id===selEdge)?'edge active':'edge');
     p.addEventListener('mousedown',ev=>{ev.stopPropagation();selEdge=e.id;renderEdges();});
   }
@@ -792,8 +826,9 @@ function startNodeDrag(ev,n,el){
   el.querySelector('.node-head').classList.add('dragging');
 }
 function startSock(ev,s,n){
-  ev.stopPropagation(); if(s.classList.contains('in'))return; // 从输出发起
-  drag={kind:'edge',from:n,fromEl:s.closest('.node'),ghost:null,target:null};
+  if(ev.button!==0)return;
+  ev.stopPropagation(); if(s.dataset.k!=='out')return; // 从输出发起
+  drag={kind:'edge',from:n,fromName:s.dataset.name||'out',fromEl:s.closest('.node'),ghost:null,target:null};
 }
 function startPan(ev){drag={kind:'pan',ox:view.ox,oy:view.oy,sx:ev.clientX,sy:ev.clientY};
   canvas.classList.add('dragging');}
@@ -810,7 +845,7 @@ document.querySelectorAll('#toolToggle .tl').forEach(b=>{
 });
 try{const saved=localStorage.getItem('wf_tool');if(saved==='drag'||saved==='select')setTool(saved);}catch(e){}
 canvas.addEventListener('mousedown',ev=>{
-  if(ev.target.closest('.node')||ev.target.closest('.socket'))return;
+  if(ev.target.closest('.node')||ev.target.closest('.node-ports .p'))return;
   closeMenu();closeAdd();
   if(ev.button===1||(ev.button===0&&spaceHeld)){startPan(ev);}
   else if(ev.button===0){if(tool==='drag'){startPan(ev);}else{startRB(ev);selectOne(null);}}
@@ -857,11 +892,11 @@ window.addEventListener('mousemove',ev=>{
   else if(drag.kind==='edge'){
     if(drag.ghost)drag.ghost.remove();
     const el=drag.fromEl; if(!el){drag=null;return;}
-    const [x1,y1]=sockWorld(el.querySelector('.socket.out'));
+    const [x1,y1]=sockWorld(el.querySelector('.p.out .dot'));
     const t=document.elementFromPoint(ev.clientX,ev.clientY);
-    const inp=t&&t.classList&&t.classList.contains('in')?t:null;
+    const inp=t?t.closest('.p.in'):null;
     let x2,y2;
-    if(inp){const [a,b]=sockWorld(inp);x2=a;y2=b;drag.target=inp.closest('.node').dataset.id;}
+    if(inp){const [a,b]=sockWorld(inp.querySelector('.dot'));x2=a;y2=b;drag.target=inp.closest('.node').dataset.id;}
     else{x2=w.x;y2=w.y;drag.target=null;}
     drag.ghost=path(x1,y1,x2,y2,'edge ghost');
   }
@@ -872,12 +907,14 @@ window.addEventListener('mouseup',ev=>{
   if(drag.kind==='edge'){
     if(drag.ghost)drag.ghost.remove();
     const t=document.elementFromPoint(ev.clientX,ev.clientY);
-    if(t&&t.classList&&t.classList.contains('in')){
-      const to=t.closest('.node').dataset.id, from=drag.from.id;
+    const tin=t?t.closest('.p.in'):null;
+    if(tin){
+      const to=tin.closest('.node').dataset.id, from=drag.from.id;
       if(from!==to&&to){
         pushHist();
-        edges=edges.filter(e=>!(e.to===to&&e.to_port==='in')); // 每个输入仅一连接
-        edges.push({id:'e'+(++eidSeq),from,from_port:'out',to,to_port:'in'});
+        const inName=tin.dataset.name||'in';
+        edges=edges.filter(e=>!(e.to===to&&e.to_name===inName)); // 每个输入端口仅一连接
+        edges.push({id:'e'+(++eidSeq),from,from_port:drag.fromName||'out',to,to_port:'in',to_name:inName});
       }
     }
     renderEdges();updateMap();
@@ -945,12 +982,20 @@ function nudgeSel(ev){
 
 // ── 拖放 (ComfyUI: 拖入 .json 工作流 / 内核模型文件) ──
 const dropHud=$('dropHud');
-canvas.addEventListener('dragover',e=>{e.preventDefault();if(e.dataTransfer)dropHud.classList.add('show');
-  canvas.classList.add('dragdrop');});
+// 仅当拖入的是真实文件时才展示/处理上传, 避免普通鼠标拖拽误触
+function isFileDrag(e){
+  const dt=e.dataTransfer;if(!dt)return false;
+  const types=(dt.types)?Array.prototype.slice.call(dt.types):[];
+  return types.some(t=>t==='Files'||t==='application/x-moz-file');
+}
+canvas.addEventListener('dragover',e=>{e.preventDefault();
+  if(isFileDrag(e)){dropHud.classList.add('show');canvas.classList.add('dragdrop');}});
 canvas.addEventListener('dragleave',e=>{e.preventDefault();dropHud.classList.remove('show');
   canvas.classList.remove('dragdrop');});
+window.addEventListener('dragend',()=>{dropHud.classList.remove('show');canvas.classList.remove('dragdrop');});
 canvas.addEventListener('drop',e=>{e.preventDefault();e.stopPropagation();
   dropHud.classList.remove('show');canvas.classList.remove('dragdrop');
+  if(!isFileDrag(e))return;
   const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];const name=f?(f.name||''):'';
   const base=(name||'').replace(/\.[^.]+$/,'').toLowerCase();
   const m=MODELS.find(x=>(x.route||'').toLowerCase()===base||(x.name||'').toLowerCase()===base);
