@@ -229,7 +229,7 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 * [参与贡献](docs/CONTRIBUTING.md)
 * [发行说明](docs/RELEASE_NOTES.md)
 * [彩蛋（原「菜单·植物大战 VS Code」）](#彩蛋)
-* [开源许可证 MIT](LICENSE)
+* [开源许可证 GPL](LICENSE)
 
 ### 项目结构
 
