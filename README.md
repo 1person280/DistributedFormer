@@ -11,8 +11,10 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.17.0-orange)](docs/历史文档/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.18.1-orange)](docs/历史文档/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#外部动作)
+
+**额外依赖兼容** · [![by ComfyUI](https://img.shields.io/badge/by-ComfyUI-9796F0)](docs/发行现状/COMFYUI_GAP_ROADMAP.md) [![by CuteMamen](https://img.shields.io/badge/by-CuteMamen-FF9B4A)](docs/技术文档/PLUGIN_STANDARD.md)
 
 </div>
 
@@ -123,35 +125,10 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 - 版本 0.18.0 → **0.18.1**（pyproject / `__version__` / `CORE_VERSION` /
   `min_core_version`）。运行：`python -m src.cli blueprint --help`。
 
-### v0.17.0 视频生成插件强化 · 内容生成面 + 精度边界量化
-
-- **从被动识别走向主动生成量化**：补齐"视频生成"插件的**内容生成面不足**——
-  新增分辨率 × 时长 网格上的生成精度边界实验 (R4b)，用真实关键帧（真实运维
-  时序重排）经真实运镜渲染，度量结构保真度 SSIM ∈ [0,1]，输出**概率云图**
-  （`video_generation_precision_cloud.html`，JSON/MD 报告同出）。
-- **扩大视频识别规模**：真实运镜识别样本 200 → **500**（10 类 × 50 点，
-  纯真实稠密采样）；水库**多一层 16 单元嵌套**（depth=2，4368 单元/面），
-  5 种子 × 5 折分层 CV。
-- 版本 0.16.0 → **0.17.0**（pyproject / `__version__` / `CORE_VERSION` /
-  `min_core_version`）。运行：`python src/experiments/video_motion_benchmark.py`
-  与 `python src/experiments/video_generation_precision.py`。
-
-### v0.16.0 工作流 UI 大版本 · 对齐 ComfyUI
-
-- **节点内联控件**：滑块/数字/文本/下拉直接画在节点 body，与参数面板双向同步。
-- **左侧浮动侧栏**：Generate 队列徽章 + `Queue`/`Load`/`Explorer` 三页签，队列可暂停/排队。
-- **节点增强**：状态色、逐节点拓扑执行高亮、Bypass/Mute、Reroute 直通、备注 (subtitle)。
-- **选区组 (Group)**、**拖放 `.json`/模型**、**更多快捷键**（Ctrl+A/方向键/Ctrl+G/Ctrl+B）。
-- 版本 0.15.x → **0.16.0**（pyproject / `__version__` / `CORE_VERSION` / `min_core_version`）。
-
-### v0.14.6 云端更新 · 精简 README + 开源许可 GPL-3.0
-
-- **开源许可**：MIT → **GPL-3.0**（copyleft，派生/分发需保持开源）。`LICENSE` 全文更新，
-  pyproject 的 `license` 字段、分类器与 README 徽章同步；CuteMamen 兼容声明以
-  GPLv3 §7 额外权限形式保留。
-- **README 微调精简**：压缩对比与插件段的冗长表述，表格与实测数据一律保留，重内容
-  继续下沉至 `docs/`。
-- 纯文档与元数据变更，无行为改动，全量测试应通过。
+> 更早版本（v0.17.0 视频生成强化 / v0.16.0 工作流 UI / v0.14.6 云端更新等）见
+> [docs/历史文档/CHANGELOG.md](docs/历史文档/CHANGELOG.md)。
+> 逐版本实验准确率轨迹见 [docs/历史文档/EXPERIMENT_RECORDS.md](docs/历史文档/EXPERIMENT_RECORDS.md)，
+> 里程碑时间线见 [docs/历史文档/VERSION_HISTORY.md](docs/历史文档/VERSION_HISTORY.md)。
 
 ### 生态协同 v0.14.5 · 思考怎么"打配合"
 
@@ -162,6 +139,7 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 | **核心模型思考** | CubeGPT 内核必要思考：路由 / KV 堆工作记忆 / 顶层输出头 / 节律 | 被路由激活即思考 | `CuteMamenKernel` · `CubeGPTKernel` |
 | **工作型插件** | 完成具体任务/思考（分类、检索、生成） | `ctx.ask(topic, data)` 请求/应答 · `emit` 广播 | RustCoding · JavaCoding · VideoMaking · **TagSearching** |
 | **服务型插件** | 提供能力服务（外挂 LLM、对话、推理） | 被 `ask` 请求 / 被 `think` 路由 | **LLMProvider · Chat** |
+| **兼容 ComfyUI 生态** | 工作流/存档与 ComfyUI 互导（蓝图 `.blueprint.zip` 走 v1.0 规范） | 经 `blueprint` 打包/解包共享 `workflow.json` | `blueprint` CLI（v0.18.1 起）|
 
 **插件互通信（新增 v0.14.5）**：`PluginContext.ask()` 让一个插件在 `on_think`
 内**同步请求**另一插件并直接取回结果（插件↔插件双向）；`run_gpt({模态:数据})`
@@ -278,13 +256,8 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 补完该清单即可发布正式版 1.0.0。并行线程：**扩展更多真实数据集与真实语料、持续丰富
 工作型 / 服务型插件生态**（无版本承诺），以持续支撑多任务真实基准与在线持续学习验证。
 
-**待补齐问题（视频插件，v0.17.0 已解决）**：视频生成插件的**内容生成面不足**与**缺乏分辨率 / 时长的准确率分布图**——
-已新增生成精度边界实验 (R4b) 用真实关键帧（真实运维时序重排）× 真实运镜渲染，度量
-**分辨率 × 时长** 网格上的生成精度（可分辨帧占比 = 相机位移 ≥1px 的步骤比例）并输出**概率云图**
-（`video_generation_precision_cloud.html`）；同时把运动识别训练样本 200 → **500**、水库
-**多一层 16 单元嵌套**（depth=2），识别精度 61.7% → **66.3%** ± 9.3%。复现：
-`python src/experiments/video_motion_benchmark.py` 与
-`python src/experiments/video_generation_precision.py`。
+> 已解决项均已归档至 [docs/历史文档/EXPERIMENT_RECORDS.md](docs/历史文档/EXPERIMENT_RECORDS.md)
+> 与 [docs/历史文档/VERSION_HISTORY.md](docs/历史文档/VERSION_HISTORY.md)。
 
 ## 文档
 

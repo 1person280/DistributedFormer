@@ -1,6 +1,6 @@
 # 实验记录（归档）
 
-> 本文档归档本项目的**全部历史实验记录**（README 只保留最新版本 v0.17.0 的进展）。
+> 本文档归档本项目的**全部历史实验记录**（README 只保留最新版本 v0.18.1 的进展）。
 > 含**负结果**，诚实公开。版本里程碑时间线见
 > [VERSION_HISTORY.md](./VERSION_HISTORY.md)。
 
@@ -43,6 +43,17 @@
 |------|------|----------|------|------------|
 | v0.8.6 | **RustCodingPlugin**（主模型知识迁移） | 502 段真实 Rust | 5 种子 × 5 折，插件路由推理 | **76.7%**（与主模型直评逐折一致）|
 | v0.12.0 | **VideoMakingPlugin**（插件内训练，实验 R4） | 真实运镜曲线 × 10 类 | 5 种子 × 5 折分层 CV | **61.7%** ± 9.8%（25/25 折超随机 10%）|
+
+#### 视频插件精度边界（v0.17.0 已解决，实验 R4b）
+
+原已解决项：视频生成插件**内容生成面不足**与**缺乏分辨率 / 时长的准确率分布图**。
+已新增生成精度边界实验 (R4b)，用真实关键帧（真实运维时序重排）× 真实运镜渲染，
+度量**分辨率 × 时长**网格上的生成精度（可分辨帧占比 = 相机位移 ≥1px 的步骤比例），
+输出概率云图（`video_generation_precision_cloud.html`）。同时把运动识别训练样本
+200 → **500**、水库**多一层 16 单元嵌套**（depth=2），识别精度 61.7% → **66.3%** ± 9.3%。
+复现：`python src/experiments/video_motion_benchmark.py` 与
+`python src/experiments/video_generation_precision.py`。实现细节见
+[`video_generation_precision.py`](../../src/experiments/video_generation_precision.py)。
 
 v0.11.0 多任务结果（5 种子 × 5 折，实验 R3，见
 [`multi_task_report.md`](../../src/experiments/multi_task_report.md)）：
