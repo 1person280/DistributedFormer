@@ -232,8 +232,6 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 | 4.0s | 0 / 0 | 0 / 0 | 2 / 3 | 6 / 9 | 16 / 24 | 29 / 44 |
 | 8.0s | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 2 / 3 | 5 / 8 |
 
-→ 完整概率云图（热力 + 逐帧散点）：[video_generation_precision_cloud.html](src/experiments/video_generation_precision_cloud.html)；数据源 [video_generation_precision_results.json](src/experiments/video_generation_precision_results.json)。
-
 <br />
 
 **② 服务型插件**（无训练读出头 · 对外提供服务）
