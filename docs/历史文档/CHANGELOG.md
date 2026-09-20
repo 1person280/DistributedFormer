@@ -1,5 +1,39 @@
 # 更新日志
 
+## v0.18.1 更好的存档 · 预制存档（蓝图）走 ComfyUI 规范 (2026-09-20)
+
+新增**预制存档（蓝图 Blueprint）**：把表层工作流 + 模型存档打包为单个
+`.blueprint.zip`（**ZIP_STORED 不压缩**），供分发 / 复现。
+
+### 新增
+- **蓝图模块**（`src/blueprint.py`）：`to_comfy` / `from_comfy` 双向转换 + 打包 /
+  解包 / 列表，纯标准库数据层。
+- **ComfyUI v1.0 规范工作流**：蓝图内 `workflow.json` 含
+  `version`/`config`/`state`/`groups`/`nodes`/`links`；节点带
+  `pos`/`size`/`flags`/`order`/`mode`/`inputs`/`outputs`/`properties`/
+  `widgets_values`；连线用 `[id, origin_id, origin_slot, target_id, target_slot,
+  type]` 元组；组带 `title`/`bounding`/`color`/`font_size`/`locked`。
+- **CLI 子命令**（`src/cli.py`）：`dformer blueprint save/load/list`——
+  save=打包（`--workflow`/`--models`/`--out-dir`/`--core-version`）、
+  load=解包还原内部图 + 模型落盘、list=读 manifest 不落地。
+
+### 变更
+- 版本 0.18.0 → **0.18.1**（pyproject / `__version__` / `pkg.CORE_VERSION` /
+  `min_core_version` / `server_version`）。
+- 蓝图与项目既有 `.CuteMamen`/`.dfpkg`（tar.gz 压缩）格式区分：蓝图用
+  zip + `ZIP_STORED`（压缩类型码 0，不压缩）。
+
+### 测试
+- 新增 `src/tests/test_blueprint.py`：ComfyUI v1.0 schema 结构、zip 压缩类型
+  `==ZIP_STORED`、带模型 round-trip、`list_blueprints`、`from_comfy` 反向一致。
+
+### 运行
+```
+python -m src.cli blueprint save --name <n> --workflow <wf.json> --out-dir cache/blueprints
+python -m src.cli blueprint load  --path cache/blueprints/<n>.blueprint.zip --out-dir <dir>
+python -m src.cli blueprint list  --dir cache/blueprints
+```
+
 ## v0.17.0 视频生成插件强化 · 内容生成面 + 精度边界量化 (2026-09-20)
 
 补齐"视频生成"插件**内容生成面不足**（此前偏重镜头运动识别 10 类 61.7%），

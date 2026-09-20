@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-节点图工作流 (v0.16.0) — ComfyUI 式自定义模型工作流
+节点图工作流 (v0.18.1) — ComfyUI 式自定义模型工作流
 
 零第三方依赖, 纯手写 vanilla JS/HTML/CSS 前端 + stdlib http.server 后端。
 借鉴 ComfyUI 交互: 自由拼搭任意 DAG (输入→模型→输出 可扇出/汇聚/驳接),
@@ -307,6 +307,7 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
   background:radial-gradient(circle,#2b2b2b 1px,transparent 1.4px);
   background-size:22px 22px}
 #canvas.dragging{cursor:grabbing}
+#canvas.dragging,#canvas.dragging *{user-select:none;-webkit-user-select:none}
 #world{position:absolute;left:0;top:0;transform-origin:0 0}
 #world svg{position:absolute;left:0;top:0;width:200000px;height:200000px;
   overflow:visible;pointer-events:none}
@@ -314,6 +315,8 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
 .edge:hover{stroke:var(--acc)}
 .edge.active{stroke:#fff;stroke-width:3}
 .edge.ghost{stroke:var(--warn);stroke-dasharray:6 4;stroke-width:2}
+.edge-hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:pointer}
+.edge-hit:hover{stroke:rgba(107,195,255,.06)}
 /* ── 节点 ── */
 .node{position:absolute;min-width:190px;max-width:250px;background:var(--node);
   border:1px solid #444;border-radius:7px;box-shadow:0 3px 10px rgba(0,0,0,.45);
@@ -498,6 +501,19 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
   background:rgba(30,30,30,.85);padding:1px 8px;border-radius:8px;cursor:grab;border:1px solid rgba(120,160,255,.35)}
 .group.fold .foldnodes{display:none}
 .group.muted{opacity:.4}
+.c-swatches{display:flex;gap:5px;padding:4px 8px}
+.c-swatches span{width:14px;height:14px;border-radius:50%;cursor:pointer;border:1px solid rgba(255,255,255,.25)}
+.c-swatches span:hover{transform:scale(1.25)}
+/* ══ 选中浮动操作条 (点选—操作闭环) ══ */
+#selBar{position:absolute;display:none;align-items:center;gap:3px;padding:3px 6px;
+  background:rgba(24,24,24,.96);border:1px solid var(--acc);border-radius:8px;
+  box-shadow:0 4px 14px rgba(0,0,0,.5);z-index:20;transform:translateX(-50%) translateY(-100%)}
+#selBar.show{display:flex}
+#selBar button{border:none;background:transparent;color:#cfe3ff;font-size:11px;cursor:pointer;
+  padding:3px 7px;border-radius:5px;white-space:nowrap}
+#selBar button:hover{background:rgba(107,195,255,.18)}
+#selBar button.danger:hover{background:rgba(255,80,80,.22);color:#ff9a9a}
+#selBar .selbar-count{font-size:11px;color:#ffd76a;padding:2px 6px;white-space:nowrap}
 /* ══ 拖放高亮 ══ */
 #canvas.dragdrop{outline:2px solid var(--acc);outline-offset:-4px}
 #dropHud{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
@@ -553,6 +569,7 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
     <button id="sbBar" class="sb-inline" title="展开侧边栏">☰</button>
     <div id="dropHud"><div class="box">放开以加载工作流/模型文件<small>支持 .json 工作流 或 内核模型 route 文件</small></div></div>
     <div id="statusBar"><span id="stCount">0 节点 · 0 边</span><span id="stZoom"></span><span id="stMsg" class="hint">双击画布搜索添加节点 · 连接端口运行 · 框选/多选/拖拽</span></div>
+    <div id="selBar"></div>
     <div id="minimap"><canvas id="mmCv"></canvas><span id="mmLabel">MAP</span></div>
   </div>
   <aside id="inspector">
@@ -564,6 +581,7 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
   <div id="addList"></div></div>
 <div class="ctx-menu" id="ctxMenu"><div id="ctxItems"></div></div>
 <input type="file" id="fileIn" accept=".json,application/json" style="display:none">
+<input type="file" id="fileData" accept=".json,.txt,.md,.csv,.log,application/json,text/plain" style="display:none">
 
 <script>
 'use strict';
@@ -609,7 +627,7 @@ function sockWorld(el){const r=el.getBoundingClientRect(),c=rect();
 // ── 拖拽流水线 (rAF 合帧, 避免每帧重建连线/重绘小地图导致的卡顿) ──
 let _mmQ=false,_edQ=false;
 function scheduleMap(){if(_mmQ)return;_mmQ=true;requestAnimationFrame(()=>{_mmQ=false;updateMap();});}
-function scheduleEdges(){if(_edQ)return;_edQ=true;requestAnimationFrame(()=>{_edQ=false;renderEdges();updateMap();});}
+function scheduleEdges(){if(_edQ)return;_edQ=true;requestAnimationFrame(()=>{_edQ=false;renderEdges();updateMap();updateSelBar();});}
 
 // ── 渲染节点 ─────────────────────────────
 const svg=$('edges');
@@ -628,7 +646,8 @@ function widgetHTML(n){
     return `<div class="node-widget">
       <label>Topic</label>
       <input type="text" data-w="topic" value="${esc(p.topic||'')}" placeholder="topic (可选)">
-      <label>Data</label>${dataHTML}</div>`;
+      <label>自然语言 / 消息 / 数据</label>${dataHTML}
+      <button type="button" class="btn ghost" style="margin-top:4px;width:100%" data-w="loadfile">📂 载入文件到 data</button></div>`;
   }
   if(n.type==='model'){
     const sel=p.route||'';
@@ -730,6 +749,10 @@ function renderNodes(){
           renderProp();
         }
       };
+      if(w.dataset.w==='loadfile'){ // 文件输入: 载入文本/JSON 到 data
+        w.onclick=()=>{_fileNode=n;$('fileData').click();};
+        return;
+      }
       w.addEventListener(w.tagName==='SELECT'?'change':'input',e=>apply(e.target));
     });
     if(n._err){el.classList.add('done');el.querySelector('.res').textContent=n._err;
@@ -752,9 +775,12 @@ function renderGroups(){
     y1+=12;
     const d=document.createElement('div'); d.className='group'+(g.fold?' fold':'')+(g.muted?' muted':'');
     d.dataset.gid=g.id;
+    const gc=g.color||'#7aa2ff';
+    d.style.borderColor=gc; d.style.background=gc+'18';
     d.style.left=x0+'px'; d.style.top=y0+'px';
     d.style.width=(x1-x0)+'px'; d.style.height=(y1-y0)+'px';
     const t=document.createElement('div'); t.className='g-title';
+    t.style.color=gc; t.style.borderColor=gc;
     t.textContent=(g.fold?'▸ ':'▾ ')+(g.name||'组')+' ('+ms.length+')';
     t.title='拖动移动全组 · 双击折叠/展开';
     t.onmousedown=ev=>{ev.preventDefault();ev.stopPropagation();startGroupDrag(ev,g);};
@@ -765,6 +791,7 @@ function renderGroups(){
 }
 function toggleGroupFold(g){pushHist();g.fold=!g.fold;renderGroups();renderNodes();updateMap();}
 function startGroupDrag(ev,g){
+  if(drag)finalizeDrag(true);
   const w0=worldFrom(ev.clientX,ev.clientY); const base={};
   g.nodes.forEach(id=>{const nd=nodes.find(x=>x.id===id);if(nd)base[id]={x:nd.x,y:nd.y};});
   let moved=false;
@@ -775,13 +802,15 @@ function startGroupDrag(ev,g){
     document.querySelectorAll('.node').forEach(el=>{const nd=nodes.find(x=>x.id===el.dataset.id);
       if(nd){el.style.left=nd.x+'px';el.style.top=nd.y+'px';}});
     renderGroups();renderEdges();updateMap();};
-  const onu=()=>{if(moved)pushHist();window.removeEventListener('mousemove',onm);window.removeEventListener('mouseup',onu);};
+  const onu=()=>{if(moved)pushHist();canvas.classList.remove('dragging');
+    window.removeEventListener('mousemove',onm);window.removeEventListener('mouseup',onu);updateSelBar();};
+  canvas.classList.add('dragging');
   window.addEventListener('mousemove',onm);window.addEventListener('mouseup',onu);
 }
 function makeGroup(){
   const ids=[...selSet];
   if(ids.length<2){toast('请先框选/多选 ≥2 个节点');return;}
-  pushHist(); const g={id:'g'+(grpSeq.n+=1),name:'组'+grpSeq.n,nodes:ids,fold:false,muted:false};
+  pushHist(); const g={id:'g'+(grpSeq.n+=1),name:'组'+grpSeq.n,nodes:ids,fold:false,muted:false,color:'#7aa2ff'};
   groups.push(g);renderGroups();renderNodes();toast('已创建组');}
 function removeGroup(g){pushHist();groups=groups.filter(x=>x.id!==g.id);renderGroups();renderNodes();toast('已撤分组');}
 function renameGroup(g){const v=prompt('组名称',g.name||'组');if(v!==null){g.name=v.trim()||'组';renderGroups();}}
@@ -803,8 +832,14 @@ function renderEdges(){
     if(!co||!ci)continue;
     const [x1,y1]=sockWorld(co.querySelector('.dot'));
     const [x2,y2]=sockWorld(ci.querySelector('.dot'));
-    const p=path(x1,y1,x2,y2,(e.id===selEdge)?'edge active':'edge');
-    p.addEventListener('mousedown',ev=>{ev.stopPropagation();selEdge=e.id;renderEdges();});
+    const active=(e.id===selEdge);
+    const p=path(x1,y1,x2,y2,active?'edge active':'edge');
+    // 宽透明命中路径: 2px 细线难点中, 用加宽描边承接点选
+    const hit=document.createElementNS('http://www.w3.org/2000/svg','path');
+    hit.setAttribute('class','edge-hit');
+    hit.setAttribute('d',p.getAttribute('d'));
+    svg.appendChild(hit);
+    hit.addEventListener('mousedown',ev=>{ev.stopPropagation();selectEdge(e.id);});
   }
 }
 function path(x1,y1,x2,y2,cls){
@@ -817,23 +852,30 @@ function path(x1,y1,x2,y2,cls){
 
 // ── 交互: 拖拽 / 连线 / 平移 / 缩放 ───────
 function startNodeDrag(ev,n,el){
+  if(drag)finalizeDrag(true);
   ev.preventDefault();ev.stopPropagation();
   if(ev.shiftKey){toggleSel(n);return;}
   if(!selSet.has(n.id))selectOne(n);
   const w=worldFrom(ev.clientX,ev.clientY);
   const base={};selSet.forEach(id=>{const nd=nodes.find(x=>x.id===id);if(nd)base[id]={x:nd.x,y:nd.y};});
-  drag={kind:'node',n,el,base,gdx:0,gdy:0,anchored:false,moved:false};
+  const g=base[n.id]||{x:n.x,y:n.y};
+  drag={kind:'node',n,el,base,gdx:w.x-g.x,gdy:w.y-g.y,anchored:true,moved:false}; // 按下瞬间锚定抓取偏移
+  canvas.classList.add('dragging');
   el.querySelector('.node-head').classList.add('dragging');
 }
 function startSock(ev,s,n){
   if(ev.button!==0)return;
+  if(drag)finalizeDrag(true);
   ev.stopPropagation(); if(s.dataset.k!=='out')return; // 从输出发起
   drag={kind:'edge',from:n,fromName:s.dataset.name||'out',fromEl:s.closest('.node'),ghost:null,target:null};
+  canvas.classList.add('dragging');
 }
-function startPan(ev){drag={kind:'pan',ox:view.ox,oy:view.oy,sx:ev.clientX,sy:ev.clientY};
+function startPan(ev){const r=rect();
+  drag={kind:'pan',ox:view.ox,oy:view.oy,sx:ev.clientX-r.left,sy:ev.clientY-r.top};
   canvas.classList.add('dragging');}
-function startRB(ev){drag={kind:'rb',ok:false,orig:worldFrom(ev.clientX,ev.clientY),rect:null};
-  rbEl.style.display='none';}
+function startRB(ev){if(drag)finalizeDrag(true);
+  drag={kind:'rb',ok:false,orig:worldFrom(ev.clientX,ev.clientY),rect:null};
+  rbEl.style.display='none';canvas.classList.add('dragging');}
 function setTool(t){
   tool=t;
   document.querySelectorAll('#toolToggle .tl').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
@@ -864,6 +906,8 @@ window.addEventListener('mousemove',ev=>{
     return;
   }
   if(!drag)return;
+  // 残留拖拽防护: 鼠标已无按键按下但 drag 仍未结束(如鼠标在窗口外松开) → 立即终结
+  if(drag.kind!=='map'&&ev.buttons===0){finalizeDrag(true);return;}
   const r=rect(),sx=ev.clientX-r.left,sy=ev.clientY-r.top,w=worldFrom(ev.clientX,ev.clientY);
   if(drag.kind==='pan'){view.ox=drag.ox+(sx-drag.sx);view.oy=drag.oy+(sy-drag.sy);applyView();scheduleMap();}
   else if(drag.kind==='rb'){
@@ -878,13 +922,16 @@ window.addEventListener('mousemove',ev=>{
     selSet.clear();
     nodes.forEach(n=>{if(n.x<x1&&n.x+NODE_W>x0&&n.y<y1&&n.y+90>y0)selSet.add(n.id);});
     document.querySelectorAll('.node').forEach(e=>{if(selSet.has(e.dataset.id))e.classList.add('selected');});
+    updateCount(); // 框选过程实时反馈
   }
   else if(drag.kind==='node'){
-    const b0=drag.base[drag.n.id]||{x:drag.n.x,y:drag.n.y};
-    if(!drag.anchored){drag.gdx=w.x-b0.x;drag.gdy=w.y-b0.y;drag.anchored=true;}
+    const grabbed=drag.base[drag.n.id]||{x:drag.n.x,y:drag.n.y};
+    // 抓取偏移在 mousedown 已锚定(drag.gdx/gdy); 每帧按当前鼠标重算抓取节点目标, 其余保持相对位差
+    const gx=w.x-drag.gdx, gy=w.y-drag.gdy;
     for(const key in drag.base){const nd=nodes.find(x=>x.id===key);if(!nd)continue;
-      const nx=Math.max(0,Math.round(drag.base[key].x+drag.gdx));
-      const ny=Math.max(0,Math.round(drag.base[key].y+drag.gdy));
+      const b=drag.base[key];
+      const nx=Math.max(0,Math.round(b.x+(gx-grabbed.x)));
+      const ny=Math.max(0,Math.round(b.y+(gy-grabbed.y)));
       if(nx!==nd.x||ny!==nd.y)drag.moved=true;
       nd.x=nx;nd.y=ny;}
     document.querySelectorAll('.node').forEach(el=>{const nd=nodes.find(x=>x.id===el.dataset.id);if(nd){el.style.left=nd.x+'px';el.style.top=nd.y+'px';}});
@@ -904,34 +951,45 @@ window.addEventListener('mousemove',ev=>{
 window.addEventListener('mouseup',ev=>{
   if(mapDrag){mapDrag=null;scheduleMap();return;}
   if(!drag)return;
+  finalizeDrag(false,ev);
+});
+// 拖拽统一终结: aborted=中途被打断(无有效落点/按键丢失), ev=真实 mouseup 事件(用于边缘落点判定)
+function finalizeDrag(aborted,ev){
+  if(!drag)return;
   if(drag.kind==='edge'){
-    if(drag.ghost)drag.ghost.remove();
-    const t=document.elementFromPoint(ev.clientX,ev.clientY);
-    const tin=t?t.closest('.p.in'):null;
-    if(tin){
-      const to=tin.closest('.node').dataset.id, from=drag.from.id;
-      if(from!==to&&to){
-        pushHist();
-        const inName=tin.dataset.name||'in';
-        edges=edges.filter(e=>!(e.to===to&&e.to_name===inName)); // 每个输入端口仅一连接
-        edges.push({id:'e'+(++eidSeq),from,from_port:drag.fromName||'out',to,to_port:'in',to_name:inName});
+    if(drag.ghost){drag.ghost.remove();drag.ghost=null;}
+    if(!aborted&&ev){
+      const t=document.elementFromPoint(ev.clientX,ev.clientY);
+      const tin=t?t.closest('.p.in'):null;
+      if(tin){
+        const to=tin.closest('.node').dataset.id, from=drag.from.id;
+        if(from!==to&&to){
+          pushHist();
+          const inName=tin.dataset.name||'in';
+          edges=edges.filter(e=>!(e.to===to&&e.to_name===inName)); // 每个输入端口仅一连接
+          edges.push({id:'e'+(++eidSeq),from,from_port:drag.fromName||'out',to,to_port:'in',to_name:inName});
+        }
       }
     }
     renderEdges();updateMap();
   }
   else if(drag.kind==='rb'){
     rbEl.style.display='none';
-    if(!drag.ok){selSet.clear();selection=null;}
-    else{const arr=nodes.filter(n=>selSet.has(n.id));selection=arr[0]||null;}
-    applySel();renderEdges();renderProp();updateMap();
+    if(!aborted){
+      if(!drag.ok){selSet.clear();selection=null;}
+      else{const arr=nodes.filter(n=>selSet.has(n.id));selection=arr[0]||null;}
+      applySel();renderEdges();renderProp();updateMap();
+    }else{applySel();renderEdges();updateMap();}
   }
   else if(drag.kind==='node'){
-    if(drag.moved)pushHist();
-    if(drag.el)drag.el.querySelector('.node-head').classList.remove('dragging');
+    if(drag.moved&&!aborted)pushHist();
+    if(drag.el){const hd=drag.el.querySelector('.node-head');if(hd)hd.classList.remove('dragging');}
     renderEdges();updateMap();}
   else if(drag.kind==='pan'){renderEdges();updateMap();}
   canvas.classList.remove('dragging');drag=null;
-});
+  updateSelBar();
+}
+window.addEventListener('blur',()=>{finalizeDrag(true);});
 canvas.addEventListener('wheel',ev=>{
   ev.preventDefault();
   const r=rect(),mx=ev.clientX-r.left,my=ev.clientY-r.top;
@@ -1012,9 +1070,61 @@ canvas.addEventListener('drop',e=>{e.preventDefault();e.stopPropagation();
 // ── 选择 / 编辑 ──────────────────────────
 function applySel(){
   document.querySelectorAll('.node').forEach(el=>el.classList.toggle('selected',selSet.has(el.dataset.id)));
+  updateSelBar();
+}
+// 点选—操作闭环: 选中节点/边后在画布上弹出上下文操作条 (多选时显示计数并置于选区质心)
+function updateSelBar(){
+  const bar=$('selBar'); if(!bar)return;
+  bar.innerHTML='';
+  const mk=(label,fn,danger)=>{const b=document.createElement('button');b.textContent=label;
+    if(danger)b.className='danger';
+    b.onmousedown=ev=>{ev.preventDefault();ev.stopPropagation();}; // 防止按钮点击抢焦点/选中文字, 且不冒泡到画布触发 startRB/startPan 清空选择
+    b.onclick=()=>{fn();updateSelBar();};bar.appendChild(b);};
+  const place=(wx,wy)=>{bar.style.left=wx*view.scale+view.ox+'px';bar.style.top=wy*view.scale+view.oy+'px';};
+  // 连线选中
+  if(selEdge){
+    const e=edges.find(x=>x.id===selEdge);
+    if(e){
+      const a=nodes.find(n=>n.id===e.from), b=nodes.find(n=>n.id===e.to);
+      if(a&&b){
+        place((a.x+b.x)/2,(a.y+b.y)/2);
+        mk('✕ 断开连线',()=>deleteEdge(selEdge),true);
+        bar.classList.add('show'); return;
+      }
+    }
+    bar.classList.remove('show'); return;
+  }
+  // 多选: 质心 + 计数
+  if(selSet.size>=2){
+    const sel=nodes.filter(n=>selSet.has(n.id));
+    if(sel.length){
+      const cx=sel.reduce((s,n)=>s+n.x,0)/sel.length, cy=sel.reduce((s,n)=>s+n.y,0)/sel.length;
+      place(cx,cy);
+      const c=document.createElement('span');c.className='selbar-count';
+      c.textContent=`已选中 ${selSet.size} 个对象`;bar.appendChild(c);
+      mk('⇶ 转为组',()=>makeGroup());
+      mk('✕ 删除',()=>deleteNodes(new Set(selSet)),true);
+      bar.classList.add('show'); return;
+    }
+  }
+  // 单选节点
+  if(selection&&selSet.size){
+    const n=selection;
+    place(n.x,n.y);
+    mk('✎ 重命名',()=>{const v=prompt('节点名称',n.title||TYPES[n.type].title);
+      if(v!==null){n.title=v.trim()||'';renderNodes();renderProp();}});
+    mk('⧉ 重复',()=>duplicateSel());
+    mk(n.bypass?'✓旁通':'旁通',()=>{n.bypass=!n.bypass;renderNodes();renderProp();});
+    mk(n.mute?'✓禁用':'禁用',()=>{n.mute=!n.mute;renderNodes();renderProp();});
+    mk('✕ 删除',()=>deleteNodes(new Set(selSet)),true);
+    bar.classList.add('show'); return;
+  }
+  bar.classList.remove('show');
 }
 function selectOne(n){selection=n;selEdge=null;selSet.clear();if(n)selSet.add(n.id);
-  applySel();renderEdges();renderProp();}
+  applySel();renderEdges();renderProp();updateCount();}
+function selectEdge(id){selEdge=id;selection=null;selSet.clear();
+  applySel();renderEdges();renderProp();updateCount();}
 function toggleSel(n){if(!n)return;
   if(selSet.has(n.id)){selSet.delete(n.id);if(selection&&selection.id===n.id)selection=null;}
   else{selSet.add(n.id);selection=n;}
@@ -1121,6 +1231,16 @@ document.addEventListener('contextmenu',ev=>{
     menuItem('重命名组',()=>renameGroup(g));
     menuItem(g.muted?'取消禁用组':'禁用组',()=>{g.muted=!g.muted;renderGroups();renderNodes();});
     menuSep();
+    { // 组着色色板
+      const row=document.createElement('div');row.className='c-swatches';
+      ['#7aa2ff','#ffb86c','#8be9fd','#ff79c6','#50fa7b','#f1fa8c'].forEach(c=>{
+        const dot=document.createElement('span');dot.style.background=c;
+        dot.onmousedown=ev=>{ev.preventDefault();ev.stopPropagation();closeMenu();
+          g.color=c;renderGroups();};
+        row.appendChild(dot);});
+      ctxItems.appendChild(row);
+    }
+    menuSep();
     menuItem('撤分组 (保留节点)',()=>removeGroup(g));
     menuItem('删除组内节点',()=>deleteNodes(new Set(g.nodes)),'Del',true);
     openMenu(ev.clientX,ev.clientY);
@@ -1171,6 +1291,17 @@ $('btnExport').onclick=exportJson;
 $('btnImport').onclick=()=>$('fileIn').click();
 $('fileIn').addEventListener('change',ev=>{const f=ev.target.files[0];if(!f)return;
   const rd=new FileReader();rd.onload=()=>{try{const w=JSON.parse(rd.result);pushHist();loadGraph(w);toast('已导入 '+(w.name||'workflow'));}catch(e){toast('导入失败: '+e.message);}};
+  rd.readAsText(f);ev.target.value='';});
+// 文件输入: 把选中文件内容载入到某 Input 节点的 data
+let _fileNode=null;
+$('fileData').addEventListener('change',ev=>{const f=ev.target.files[0];if(!f){_fileNode=null;return;}
+  const rd=new FileReader();rd.onload=()=>{
+    const n=_fileNode;_fileNode=null;
+    if(!n)return;
+    const txt=String(rd.result);
+    try{n.params.data=JSON.parse(txt);}catch(e){n.params.data=txt;}
+    renderNodes();renderProp();toast('已载入文件到 '+n.title+' 的 data ('+txt.length+' 字符)');
+  };
   rd.readAsText(f);ev.target.value='';});
 
 // ── 添加节点 (双击画布搜索) ──────────────
@@ -1399,7 +1530,11 @@ function setMsg(s,cls){const m=$('stMsg');m.textContent=s;m.className=(cls==='ok
 function toast(msg){const t=document.createElement('div');t.textContent=msg;
   t.style.cssText='position:fixed;right:14px;bottom:34px;background:#2a2a2a;border:1px solid #555;border-radius:6px;padding:7px 14px;font-size:12px;z-index:50;box-shadow:0 4px 16px rgba(0,0,0,.5)';
   document.body.appendChild(t);setTimeout(()=>t.remove(),1600);}
-function updateCount(){$('stCount').textContent=`${nodes.length} 节点 · ${edges.length} 边`;}
+function updateCount(){
+  const selN=selSet.size;
+  let txt=`${nodes.length} 节点 · ${edges.length} 边`;
+  if(selN||selEdge)txt=`选中 ${selN} 节点${selEdge?' · 1 边':''} (${txt})`;
+  $('stCount').textContent=txt;}
 
 // ── 初始化 ───────────────────────────────
 async function init(){

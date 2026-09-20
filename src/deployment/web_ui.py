@@ -198,7 +198,7 @@ loadStatus();loadBench();
 
 
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "DistributedFormerUI/0.16.0"
+    server_version = "DistributedFormerUI/0.18.1"
 
     @property
     def ui(self) -> UIServer:

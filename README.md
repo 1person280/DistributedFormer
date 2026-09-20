@@ -110,6 +110,19 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 
 ## 最新进展
 
+### v0.18.1 更好的存档 · 预制存档（蓝图）走 ComfyUI 规范
+
+- **预制存档（蓝图 Blueprint）**：把表层工作流 + 模型存档打包为单个
+  `.blueprint.zip`（**ZIP_STORED 不压缩**，压缩类型码 0），供分发/复现。
+- **工作流部分走 ComfyUI v1.0 规范**：`workflow.json` 含 `version`/`config`/`state`/
+  `groups`/`nodes`/`links`，节点带 `pos`/`size`/`flags`/`order`/`mode`/`inputs`/
+  `outputs`/`properties`/`widgets_values`，连线用 `[id, origin_id, origin_slot,
+  target_id, target_slot, type]` 元组——与 ComfyUI save 格式一致。
+- **新增 `blueprint` CLI 子命令**：`save`（内部图→ComfyUI 打包）、`load`
+  （解包并还原内部格式 + 模型落盘）、`list`（读 manifest 不落地）。
+- 版本 0.18.0 → **0.18.1**（pyproject / `__version__` / `CORE_VERSION` /
+  `min_core_version`）。运行：`python -m src.cli blueprint --help`。
+
 ### v0.17.0 视频生成插件强化 · 内容生成面 + 精度边界量化
 
 - **从被动识别走向主动生成量化**：补齐"视频生成"插件的**内容生成面不足**——

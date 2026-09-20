@@ -164,6 +164,65 @@ def cmd_ui(args):
     run_ui(host=args.host, port=args.port, depth=args.depth, dim=args.dim)
 
 
+def cmd_blueprint(args):
+    """预制存档 (蓝图): 打包/解包/列出 ComfyUI 规范工作流 + 模型存档"""
+    from src import blueprint
+
+    if args.action == "save":
+        if not os.path.isfile(args.workflow):
+            print(f"错误: 工作流文件不存在: {args.workflow}")
+            return 1
+        with open(args.workflow, encoding="utf-8") as f:
+            wf = _json_load(f)
+        path = blueprint.save_blueprint(
+            args.name, wf, models=args.models,
+            out_dir=args.out_dir or blueprint.BLUEPRINT_DIR,
+            core_version=args.core_version or "0.18.1")
+        print(f"✓ 蓝图已打包: {path}")
+        print(f"  格式: {blueprint.BLUEPRINT_FORMAT} (zip, ZIP_STORED 不压缩)")
+        return 0
+
+    if args.action == "load":
+        if not os.path.isfile(args.path):
+            print(f"错误: 蓝图不存在: {args.path}")
+            return 1
+        workflow, manifest, models = blueprint.load_blueprint(args.path)
+        print(f"✓ 蓝图: {manifest.get('name')} ({manifest.get('archived_at')})")
+        print(f"  工作流节点: {len(workflow.get('nodes', []))} · 边: "
+              f"{len(workflow.get('edges', []))} · 组: {len(workflow.get('groups', []))}")
+        for arc, data in models.items():
+            print(f"  模型: {arc} ({len(data)} 字节)")
+        # 模型落盘
+        for arc, data in models.items():
+            out_path = os.path.join(args.out_dir or ".",
+                                    os.path.basename(arc))
+            os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+            with open(out_path, "wb") as f:
+                f.write(data)
+            print(f"   → 已写出: {out_path}")
+        return 0
+
+    if args.action == "list":
+        bls = blueprint.list_blueprints(args.dir or blueprint.BLUEPRINT_DIR)
+        if not bls:
+            print("(无蓝图)")
+            return 0
+        for b in bls:
+            print(f"{b['file']}  {b.get('name')}  "
+                  f"core={b.get('core_version')}  "
+                  f"models={len(b.get('models') or [])}  "
+                  f"{b.get('archived_at')}")
+        return 0
+
+    print(f"未知动作: {args.action}")
+    return 1
+
+
+def _json_load(fp):
+    import json
+    return json.load(fp)
+
+
 def cmd_test(args):
     from src.selfcheck import run_full_test_suite
     run_full_test_suite()
@@ -271,6 +330,25 @@ def build_parser():
     p_ui.add_argument("--depth", type=int, default=1, choices=[0, 1, 2])
     p_ui.add_argument("--dim", type=int, default=16)
     p_ui.set_defaults(func=cmd_ui)
+
+    p_blp = sub.add_parser(
+        "blueprint", help="预制存档 (蓝图): ComfyUI 规范工作流 + 模型打包为 "
+                          ".blueprint.zip (ZIP_STORED 不压缩, v0.18.1)")
+    p_blp.add_argument("action", choices=["save", "load", "list"],
+                       help="save=打包  load=解包  list=列出")
+    p_blp.add_argument("--name", default=None, help="蓝图名称 (save)")
+    p_blp.add_argument("--workflow", default=None,
+                       help="工作流 JSON 路径 (save, 内部节点图格式)")
+    p_blp.add_argument("--models", nargs="*", default=None,
+                       help="模型存档路径 (.CuteMamen / .dfpkg), 原样打包 (save)")
+    p_blp.add_argument("--path", default=None, help="蓝图路径 (load)")
+    p_blp.add_argument("--out-dir", default=None,
+                       help="输出目录 (save 默认 cache/blueprints; load 模型落盘目录)")
+    p_blp.add_argument("--dir", default=None,
+                       help="蓝图目录 (list, 默认 cache/blueprints)")
+    p_blp.add_argument("--core-version", default=None,
+                       help="清单 core_version (save, 默认 0.18.1)")
+    p_blp.set_defaults(func=cmd_blueprint)
 
     p_test = sub.add_parser("test", help="运行模块自检")
     p_test.set_defaults(func=cmd_test)
