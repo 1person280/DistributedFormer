@@ -1,8 +1,8 @@
-# CuteMamen 插件标准与模态面存档（技术文档）
+# CuteMamen 插件标准（技术文档）
 
-> 本文档是 README「模态面存档」相关技术细节的完整归档，包含
-> `.dfpkg` 模态面独立存档、`.CuteMamen` 专家插件标准、`CubeGPTKernel`
-> 内核形态，以及内嵌思考插件的用法示例。
+> 本文档是 README「插件标准」相关技术细节的完整归档：`.dfpkg` 模态面存档（见
+> [MODALITY_ARCHIVE.md](./MODALITY_ARCHIVE.md)）的通用化——`.CuteMamen` 专家
+> 插件标准、`CubeGPTKernel` 内核形态，以及内嵌思考插件的用法示例。
 
 ## 核心机制一览
 
@@ -20,38 +20,7 @@
 |**节律调制**|120 步周期（80 步思考 + 40 步抑制），模拟昼夜节律的全局兴奋/抑制切换|
 |**STDP 可塑性**|脉冲时序依赖学习（LTP/LTD），与监督信号协同|
 
-## 模态面存档（.dfpkg，v0.7.0）
-
-### .dfpkg：模态面独立存档
-
-每个模态面可以独立打包为 `.dfpkg` 存档（遵循 CuteMamen 包格式精神：
-单个 tar.gz，内含 `manifest.json` 清单 + `weights/` 权重 + `memory/` 状态），
-支持自由导入导出与随用随载热加载：
-
-```python
-gpt = CubeGPT(depth=1, dim=16, modalities=["numeric", "text"])
-
-# 导出: 把 text 面打包成独立存档
-gpt.export_face("text", "text.dfpkg", author="me", capability="文本语义计算")
-
-# 卸载: 自动先导出 pkg 再从内存移除 (可随时恢复)
-gpt.unload_face("text")                    # 默认存到 cache/face_pkgs/text.dfpkg
-gpt.list_faces()                           # {'loaded': ['numeric'], 'registered': ['text']}
-
-# 随用随载: 注册后不占内存, step() 用到该模态时现场热加载
-gpt.register_face_pkg("cache/face_pkgs/text.dfpkg")
-spikes = gpt.step({"text": "hello"})       # 触发热加载, 之后常驻
-
-# 或显式加载 / 导入到另一个模型
-gpt2 = CubeGPT(depth=1, dim=16, modalities=["numeric"])
-gpt2.import_face("text.dfpkg")             # 权重 + 状态逐位还原
-```
-
-`manifest.json` 含模态/深度/dim/单元与参数规模/内存占用，带 `min_core_version`
-兼容性检查（内核过旧拒绝加载）。权重与状态逐位可复现：感受野投影由 layer_id
-的 crc32 种子重建，小世界连接随 STDP 训练后的真值一起存档。
-
-### .CuteMamen 标准 (v0.7.2)
+## .CuteMamen 标准 (v0.7.2)
 
 v0.7.0 的模态面 pkg 是首个特例；v0.7.2 把它泛化为完整的插件标准实现：
 
@@ -111,10 +80,10 @@ kernel.think({"topic": "lora-wq", "data": x})      # 用到时现场热加载
 映射字段时报错）/ `--backup`（迁移前备份）。
 
 > **原则：可以往插座上多加孔，但不能把已有的孔堵上。**
-> 完整兼容性规范见 [COMPATIBILITY.md](./COMPATIBILITY.md)。DistributedFormer
-> v0.7.2 即是一个完整参考实现。
+> 完整兼容性规范见 [COMPATIBILITY.md](../规范文档/COMPATIBILITY.md)。
+> DistributedFormer v0.7.2 即是一个完整参考实现。
 
-### 模态面内核：CubeGPTKernel (v0.7.2)
+## 模态面内核：CubeGPTKernel (v0.7.2)
 
 按"模型只保留必要思考，其余思考交给插件"的原则，CubeGPT 有了内核形态
 `CubeGPTKernel`——经典 CubeGPT 的职责被重新划分：

@@ -1,5 +1,40 @@
 # 更新日志
 
+## v0.17.0 视频生成插件强化 · 内容生成面 + 精度边界量化 (2026-09-20)
+
+补齐"视频生成"插件**内容生成面不足**（此前偏重镜头运动识别 10 类 61.7%），
+并补充分辨率/时长的生成精度分布图。
+
+### 新增
+- **生成精度边界实验 R4b**（`src/experiments/video_generation_precision.py`）：
+  分辨率 × 时长 网格上，用真实关键帧（真实运维时序重排，非合成）经
+  `VideoMakingPlugin` 真实渲染管线（真实运镜曲线 × smoothstep 缓动帧）度量
+  **结构保真度 SSIM ∈ [0,1]**；每格 = 全部运镜 × 全部帧的分布（mean±std），
+  输出 **概率云图** `video_generation_precision_cloud.html`（零依赖 inline-SVG，
+  热力背景 + 抖动散点云）+ JSON / MD 报告。
+- **扩大视频识别规模**：真实运镜识别样本 200 → **500**（10 类 × 50 点，
+  纯真实稠密采样）；水库**多一层 16 单元嵌套**（`CubeFeatureExtractor depth=2`，
+  FractalLayer 16+16²+16³=4368 单元/面），5 种子 × 5 折分层 CV 协议不变。
+
+### 变更
+- `video_motion_benchmark.py` 默认 `depth=1→2`、`n_points=20→50`（500 样本），
+  JSON/MD 报告新增 `nest_depth`/`n_samples` 字段，标注水库嵌套规模。
+- `video_making.py` 未改内核；生成精度实验直接复用 `_affine_frame`/`_camera_at`/
+  `_ease` 与真实运镜表（同源，非旁路）。
+- 版本 0.16.0 → **0.17.0**（pyproject / `__version__` / `pkg.CORE_VERSION` /
+  `min_core_version`）。
+
+### 测试
+- 新增 `src/tests/test_video_generation.py`：500 样本每样本恰验证一次、depth=2
+  特征维度显著大于 depth=1、真实关键帧值域/非恒定、SSIM 恒等=1、精度边界
+  单调性守卫、2×2 网格概率云形状。
+
+### 运行
+```
+python src/experiments/video_motion_benchmark.py
+python src/experiments/video_generation_precision.py   # 打开 _cloud.html 看概率云图
+```
+
 ## v0.16.0 工作流 UI 大版本 (2026-09-19)
 
 节点图工作流前端全面对齐 ComfyUI 交互体验，零第三方依赖（纯手写 vanilla JS）。

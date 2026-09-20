@@ -66,6 +66,11 @@ output = state·w_out + b_out
 - 淘汰: LRU + 7 天过期; `save_to_disk / load_from_disk` JSON 持久化
 - 分布式后端: `deployment/redis_kv.py` 提供 Redis 实现 + 多租户前缀 (多节点工作流中尚未启用)
 
+#### 多节点分布式 KV 共享记忆演示
+
+后端 mock / 租户 `demo_shared`：节点 A 周期 3 写入，共享 KV 条目 3；节点 B
+检索命中 3 条、总访问 60。**结论**：多节点经 Redis 共享记忆成立。
+
 ## 学习规则
 
 无反向传播。两种机制协同:

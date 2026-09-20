@@ -89,4 +89,4 @@
 
 - ComfyUI 前端：https://github.com/Comfy-Org/ComfyUI/tree/main/web （零框架 vanilla JS 实现，本项目沿用同一思路）
 - 本项目工作流引擎：`src/deployment/workflow_ui.py`（`WorkflowEngine`）
-- 本项目建设记录：`docs/CHANGELOG.md`
+- 本项目建设记录：`docs/历史文档/CHANGELOG.md`

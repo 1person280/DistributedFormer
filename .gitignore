@@ -20,3 +20,8 @@ reports/stock_monitor_summary.md
 computation_output.txt
 .zcode/
 HEAD
+
+# 运行时临时产物 (PID / 命令日志)
+.run.ps1.pid
+gen.log
+stream.log

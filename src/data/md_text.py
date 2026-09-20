@@ -67,6 +67,24 @@ def _line_type(line: str) -> str:
     return "paragraph"
 
 
+def _collect_doc_md_files() -> List[str]:
+    """递归收集 docs/ 分类子目录下的真实 *.md 文档 (排除许可原文/译文).
+
+    docs/ 按分类子目录组织 (技术/历史/规范/发行/合规), 故需递归而非平铺
+    listdir; 许可文本非"内容类型"语料, 不纳入训练材料。
+    """
+    doc_root = os.path.join(_REPO_ROOT, "docs")
+    files = []
+    for root, _dirs, names in os.walk(doc_root):
+        for name in names:
+            if not name.endswith(".md"):
+                continue
+            if name.upper().startswith("LICENSE"):
+                continue
+            files.append(os.path.join(root, name))
+    return sorted(files)
+
+
 def load_md_text() -> List[Dict]:
     """扫描仓库内真实 *.md 文档, 返回每行真实样本列表
 
@@ -74,12 +92,8 @@ def load_md_text() -> List[Dict]:
     其余行交给 _line_type; 空行 (无判别信息) 跳过。
     返回: [{"text": str, "type": "heading|code|list|table|paragraph"}]。
     """
-    sources = sorted(
-        [os.path.join(_REPO_ROOT, "docs", f)
-         for f in os.listdir(os.path.join(_REPO_ROOT, "docs"))
-         if f.endswith(".md")])
-    for root_f in ("README.md", "CHANGELOG.md", "COMPATIBILITY.md",
-                   "CONTRIBUTING.md"):
+    sources = _collect_doc_md_files()
+    for root_f in ("README.md",):
         p = os.path.join(_REPO_ROOT, root_f)
         if os.path.exists(p):
             sources.append(p)

@@ -34,4 +34,4 @@
 | 向日葵 | 生产阳光 | 给整个花园供能 | CubeGPT 持久工作记忆（能源底座）|
 
 > 战斗记录（真实基准 / 版本历史）见 README「最新进展」、
-> [docs/HISTORY.md](HISTORY.md) 与 [docs/CHANGELOG.md](CHANGELOG.md)。
+> [EXPERIMENT_RECORDS.md](EXPERIMENT_RECORDS.md) 与 [CHANGELOG.md](CHANGELOG.md)。

@@ -1,13 +1,14 @@
 {
   "experiment": "R4_video_motion_benchmark",
-  "version": "0.12.0",
+  "version": "0.17.0",
   "protocol": "stratified_5fold_cv",
-  "date": "2026-09-17",
+  "date": "2026-09-20",
   "n_seeds": 5,
   "n_folds": 5,
   "n_classes": 10,
-  "n_points": 20,
-  "n_samples": 200,
+  "n_points": 50,
+  "n_samples": 500,
+  "nest_depth": 2,
   "best_l2": 0.001,
   "labels": [
     "static",
@@ -21,20 +22,20 @@
     "orbit_right",
     "orbit_left"
   ],
-  "val_acc_mean": 0.617,
-  "val_acc_std": 0.09765244492586964,
-  "val_acc_min": 0.425,
-  "val_acc_max": 0.775,
+  "val_acc_mean": 0.6631999999999999,
+  "val_acc_std": 0.09263778926550438,
+  "val_acc_min": 0.39,
+  "val_acc_max": 0.84,
   "seed_means": [
-    0.5850000000000001,
-    0.6300000000000001,
-    0.67,
-    0.64,
-    0.5599999999999999
+    0.698,
+    0.6639999999999999,
+    0.712,
+    0.6980000000000001,
+    0.544
   ],
-  "seed_mean_min": 0.5599999999999999,
-  "seed_mean_max": 0.67,
-  "train_acc_mean": 0.74525,
+  "seed_mean_min": 0.544,
+  "seed_mean_max": 0.712,
+  "train_acc_mean": 0.6952999999999999,
   "random_baseline": 0.1,
   "majority_baseline": 0.1,
   "beats_random_all_seeds": true,
@@ -43,66 +44,66 @@
   "results": [
     {
       "seed": 0,
-      "train_accuracy": 0.7324999999999999,
-      "val_accuracy": 0.5850000000000001,
+      "train_accuracy": 0.7124999999999999,
+      "val_accuracy": 0.698,
       "val_acc_per_fold": [
-        0.475,
-        0.525,
-        0.575,
-        0.625,
-        0.725
+        0.7,
+        0.7,
+        0.69,
+        0.77,
+        0.63
       ],
       "beats_random": true
     },
     {
       "seed": 1,
-      "train_accuracy": 0.74875,
-      "val_accuracy": 0.6300000000000001,
+      "train_accuracy": 0.683,
+      "val_accuracy": 0.6639999999999999,
       "val_acc_per_fold": [
-        0.75,
-        0.425,
+        0.62,
+        0.71,
         0.65,
-        0.75,
-        0.575
+        0.7,
+        0.64
       ],
       "beats_random": true
     },
     {
       "seed": 2,
-      "train_accuracy": 0.8149999999999998,
-      "val_accuracy": 0.67,
+      "train_accuracy": 0.7575000000000001,
+      "val_accuracy": 0.712,
       "val_acc_per_fold": [
-        0.725,
-        0.775,
         0.7,
-        0.5,
-        0.65
+        0.74,
+        0.75,
+        0.58,
+        0.79
       ],
       "beats_random": true
     },
     {
       "seed": 3,
-      "train_accuracy": 0.7350000000000001,
-      "val_accuracy": 0.64,
+      "train_accuracy": 0.75,
+      "val_accuracy": 0.6980000000000001,
       "val_acc_per_fold": [
-        0.65,
-        0.525,
-        0.6,
-        0.75,
-        0.675
+        0.72,
+        0.84,
+        0.58,
+        0.71,
+        0.64
       ],
       "beats_random": true
     },
     {
       "seed": 4,
-      "train_accuracy": 0.695,
-      "val_accuracy": 0.5599999999999999,
+      "train_accuracy": 0.5734999999999999,
+      "val_accuracy": 0.544,
       "val_acc_per_fold": [
+        0.54,
         0.65,
-        0.55,
-        0.575,
-        0.475,
-        0.55
+        0.53,
+        0.61,
+        0.39
       ],
       "beats_random": true
     }

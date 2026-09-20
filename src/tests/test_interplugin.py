@@ -205,4 +205,4 @@ def test_new_plugins_pkg_roundtrip(tmp_path):
         loaded, manifest = load_pkg(pkg)
         assert manifest["base_model"] == name
         assert isinstance(loaded, type(plugin))
-        assert manifest["min_core_version"] == "0.16.0"
+        assert manifest["min_core_version"] == "0.17.0"

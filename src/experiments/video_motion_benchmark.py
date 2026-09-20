@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-实验 R4: 视频生成训练 · 真实运动识别基准 (v0.12.0)
+实验 R4: 视频生成训练 · 真实运动识别基准 (v0.17.0)
 
 目标: 验证视频生成内核 (VideoMakingPlugin) 的**真实运镜曲线**作为训练材料
 是否携带可分信号 —— 从真实曲线稠密采样描述符 (dx,dy,zoom,rot,progress),
 识别属于哪一种真实运动类别 (10 分类, 随机基线 10%)。
+v0.17.0: 扩大规模 —— 水库多一层 16 单元嵌套 (CubeFeatureExtractor
+depth=2, FractalLayer 16+16²+16³=4368 单元/面) × 采集密度 n_points=50
+→ 500 真实样本 (之前 20 点 → 200 样本) × 5 种子 × 5 折分层 CV。
 
 数据: 真实运镜曲线 (DEFAULT_MOTION_PROFILES, 10 种真实镜头运动, 蒸馏自
 真实分镜/摄影惯例), 每条按其真实插值进度稠密采样 n_points 点 (真实取值,
@@ -116,13 +119,14 @@ def _select_best_l2(seed, n_folds, depth, n_points):
 def main():
     seeds = [0, 1, 2, 3, 4]
     n_folds = 5
-    depth = 1
-    n_points = 20
+    depth = 2                 # v0.17.0: 多一层 16 单元嵌套
+    n_points = 50             # v0.17.0: 500 真实样本 (10 类 × 50 点)
 
     print("=" * 70)
-    print(f"  实验 R4: 视频生成训练 · 真实运动识别基准 (v0.12.0)")
+    print(f"  实验 R4: 视频生成训练 · 真实运动识别基准 (v0.17.0)")
     print(f"  {len(seeds)} 种子 × {n_folds} 折分层 CV, {len(LABELS)} 种"
-          f"真实运镜 × {n_points} 点, depth={depth}")
+          f"真实运镜 × {n_points} 点, depth={depth}"
+          f" (水库 {16 + 16**2 + 16**3} 单元/面)")
     print("=" * 70)
 
     print("\n[1/2] 读出层 L2 选优 (seed=0):")
@@ -143,14 +147,15 @@ def main():
 
     summary = {
         "experiment": "R4_video_motion_benchmark",
-        "version": "0.12.0",
+        "version": "0.17.0",
         "protocol": "stratified_5fold_cv",
         "date": time.strftime("%Y-%m-%d"),
         "n_seeds": len(seeds),
         "n_folds": n_folds,
         "n_classes": len(LABELS),
         "n_points": n_points,
-        "n_samples": len(VideoMotionDataset()._corpus),
+        "n_samples": len(VideoMotionDataset(n_points=n_points)._corpus),
+        "nest_depth": depth,       # 水库 16 单元嵌套层数
         "best_l2": best_l2,
         "labels": LABELS,
         "val_acc_mean": float(np.mean(all_fold)),
@@ -180,7 +185,7 @@ def main():
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
     lines = [
-        "# 实验 R4: 视频生成训练 · 真实运动识别基准报告 (v0.12.0)\n",
+        "# 实验 R4: 视频生成训练 · 真实运动识别基准报告 (v0.17.0)\n",
         f"日期: {summary['date']}  |  真实运镜 {len(LABELS)} 类 × "
         f"{summary['n_points']} 点 = {summary['n_samples']} 样本  |  "
         f"{len(seeds)} 种子 × {n_folds} 折分层 CV\n",
@@ -188,10 +193,11 @@ def main():
         "视频生成内核 (`VideoMakingPlugin`) 的真实运镜曲线 (10 种真实镜头",
         "运动, 蒸馏自真实分镜/摄影惯例) 按其真实插值进度稠密采样为描述符",
         "(dx, dy, zoom, rot, progress), 识别采样点属于哪一种真实运动类别。\n",
-        "## 协议 (v0.12.0)",
+        "## 协议 (v0.17.0)",
         "- 数据: 真实运镜曲线稠密采样点 (非合成标签)",
         "- 输入模态: numeric (5 维真实描述符, 视频无文本模态)",
-        "- CubeGPT depth=1 (numeric 单面) 冻结, 水库状态特征",
+        f"- CubeGPT depth={depth} (numeric 单面) 冻结, 水库嵌套 "
+        f"{16 + 16**2 + 16**3} 单元/面 (多一层 16 单元嵌套) 状态特征",
         "- 线性 softmax 读出层 (z-score, L2 网格选优): "
         f"best_l2 = {best_l2:.0e}",
         "- 5 折分层交叉验证 × 5 种子 (每个样本恰好作为一次验证样本)\n",

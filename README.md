@@ -11,7 +11,7 @@
 [![CI](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml/badge.svg)](https://github.com/1person280/DistributedFormer/actions/workflows/ci.yml)
 [![PyPI - Python](https://img.shields.io/badge/python-3.9+-blue)](https://www.python.org)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.16.0-orange)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.17.0-orange)](docs/历史文档/CHANGELOG.md)
 [![Audit-Ready Architecture](https://img.shields.io/badge/security-Audit--Ready%20Architecture-blueviolet)](#外部动作)
 
 </div>
@@ -49,7 +49,7 @@
 |---|---|---|---|
 | Rust 编译错误族（502 段真实代码 · 5 类） | **76.7%** ± 3.7% | 20% | 同协议同行实测未公开（—） |
 | Markdown 内容类型（仓库真实文档 · 5 类） | **58.3%** ± 2.8% | 20% | 同协议同行实测未公开（—） |
-| 视频运动识别（真实运镜曲线 · 10 类） | **61.7%** ± 9.8% | 10% | 同协议同行实测未公开（—） |
+| 视频运动识别（真实运镜曲线 · 10 类 · 500 样本 · depth=2 嵌套） | **66.3%** ± 9.3% | 10% | 同协议同行实测未公开（—） |
 | 真实时序异常检测（NAB 运维指标 · 窗口级 2 类） | ACC **48.5%** ± 11.0% / 检出率 **48.9%** ± 14.8% | 50% / 0% | 与本仓库"窗口级二元"协议不等价，不并列（—） |
 
 > 同行 Transformer 与 snnTorch / Norse / Lava 在**相同真实语料、前后端一致的协议**下的公开
@@ -66,11 +66,13 @@ DistributedFormer 走不同于 Transformer 的路线：**超简神经元（每�
 随用随载热加载）。
 
 > **快速开始**：安装 / 端到端演示 / 库用法 / 命令行见
-> [docs/QUICKSTART.md](docs/QUICKSTART.md)。
+> [docs/技术文档/QUICKSTART.md](docs/技术文档/QUICKSTART.md)。
 
 > **技术细节**（16 参数单元动力学、分形递归、KV 堆、CubeGPT/CubeGPTKernel 结构、
 > CuteMamen 模态面存档与插件标准等）见
-> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 与 [docs/CUTEMAMEN.md](docs/CUTEMAMEN.md)。
+> [docs/技术文档/ARCHITECTURE.md](docs/技术文档/ARCHITECTURE.md)。
+> 模态面存档见 [docs/技术文档/MODALITY_ARCHIVE.md](docs/技术文档/MODALITY_ARCHIVE.md)，
+> 插件标准见 [docs/技术文档/PLUGIN_STANDARD.md](docs/技术文档/PLUGIN_STANDARD.md)。
 
 ## 外部动作
 
@@ -88,7 +90,7 @@ DistributedFormer 走不同于 Transformer 的路线：**超简神经元（每�
 
 思考与执行解耦是架构层面带来的安全红利：意图在进入执行层之前必须经过独立的
 监控面（意图探针 / 熔断 / 行为指纹 / 全链路审计）。四个安全方向均已落地
-（v0.9.2），实现细节见 [docs/HISTORY.md](docs/HISTORY.md)。
+（v0.9.2），实现细节见 [docs/历史文档/VERSION_HISTORY.md](docs/历史文档/VERSION_HISTORY.md)。
 
 ### 生态合作 · 与 OmniSpace 正式开展合作
 
@@ -107,6 +109,19 @@ AI 创作平台（对话 × 漫画 × 漫剧 × 写作 × 知识学习），默�
 > 均为真实数据）。
 
 ## 最新进展
+
+### v0.17.0 视频生成插件强化 · 内容生成面 + 精度边界量化
+
+- **从被动识别走向主动生成量化**：补齐"视频生成"插件的**内容生成面不足**——
+  新增分辨率 × 时长 网格上的生成精度边界实验 (R4b)，用真实关键帧（真实运维
+  时序重排）经真实运镜渲染，度量结构保真度 SSIM ∈ [0,1]，输出**概率云图**
+  （`video_generation_precision_cloud.html`，JSON/MD 报告同出）。
+- **扩大视频识别规模**：真实运镜识别样本 200 → **500**（10 类 × 50 点，
+  纯真实稠密采样）；水库**多一层 16 单元嵌套**（depth=2，4368 单元/面），
+  5 种子 × 5 折分层 CV。
+- 版本 0.16.0 → **0.17.0**（pyproject / `__version__` / `CORE_VERSION` /
+  `min_core_version`）。运行：`python src/experiments/video_motion_benchmark.py`
+  与 `python src/experiments/video_generation_precision.py`。
 
 ### v0.16.0 工作流 UI 大版本 · 对齐 ComfyUI
 
@@ -152,7 +167,7 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 
 ### 时序实验记录（R5 · R6）
 
-> 历史实验记录（v0.0–v0.13.1）与负结果已归档至 [docs/HISTORY.md](docs/HISTORY.md)。
+> 历史实验记录（v0.0–v0.13.1）与负结果已归档至 [docs/历史文档/EXPERIMENT_RECORDS.md](docs/历史文档/EXPERIMENT_RECORDS.md)。
 
 **（实验 R5）真实时序异常检测基准**，5 种子 × 5 折分层 CV，窗口级二元检测
 （NAB 真实运维指标，2720 个 40 点滑窗，官方告警标注）：
@@ -188,7 +203,7 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 |---|---|---|---|---|---|
 | RustCoding | Rust 编译错误分类 | 真实风格 Rust 代码 + rustc 错误码 | 502段*5类 | 4,149 | float64 |
 | JavaCoding | Java 祖传代码静态问题 | 真实风格 Java 代码 + javac 诊断 | 294段*8类 | 6,019 | float64 |
-| VideoMaking | 视频镜头运动识别 | 真实运镜/分镜曲线 | 200样本 | 3,658 | float64 |
+| VideoMaking | 视频镜头运动识别 | 真实运镜/分镜曲线 | 500样本*10类 | 3,658 | float64 |
 | OpMetrics | 时序异常检测（窗口级）| NAB 真实运维指标 | 2720滑窗*2类 | 2,370 | float64 |
 
 **①·b 插件测试结果**
@@ -197,10 +212,27 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 |---|---|---|
 | RustCodingPlugin | **76.7%** ± 3.7% | 5 种子 × 5 折，种子均值 75.1–79.1%，超随机 20%（25/25 折）|
 | JavaCodingPlugin | **58.2%** | 5 种子 × 5 折，超随机 12.5%（约 4.7 倍），vs 原型基线 56.5%；交付 `plugin/JavaCoding.CuteMamen`（迁移知识）|
-| VideoMakingPlugin | **61.7%** ± 9.8% | 5 种子 × 5 折，种子均值 56.0–67.0%，超随机 10%（25/25 折）|
+| VideoMakingPlugin | **66.3%** ± 9.3% | 5 种子 × 5 折（500 样本 × depth=2 嵌套），种子均值 54.4–71.2%，超随机 10%（25/25 折）|
 | OperationalMetricsDataset | ACC **48.5%** ± 11.0% / 检出率 **48.9%** ± 14.8% | 5 种子 × 5 折（异常类梯度=10），超随机 50%（9/25 折，多数类 97.4% 下如实偏低）|
 
-> 各插件完整标签集 / 数据来源与规模 → [rust_coding.py](src/data/rust_coding.py) · [java_coding.py](src/data/java_coding.py) · [video_motion.py](src/data/video_motion.py) · [metrics_time_series.py](src/data/metrics_time_series.py)；评测协议（5 种子 × 5 折）见 [CUTEMAMEN.md](docs/CUTEMAMEN.md)。
+> 各插件完整标签集 / 数据来源与规模 → [rust_coding.py](src/data/rust_coding.py) · [java_coding.py](src/data/java_coding.py) · [video_motion.py](src/data/video_motion.py) · [metrics_time_series.py](src/data/metrics_time_series.py)；评测协议（5 种子 × 5 折）见 [docs/技术文档/PLUGIN_STANDARD.md](docs/技术文档/PLUGIN_STANDARD.md)。
+
+**①·c 视频插件结果 · 概率云图（表格）**
+
+横轴 = 分辨率宽 (px)，竖轴 = 时长 (s)；每格 `识别% / 生成%`。
+
+- **识别准确率** = R4 运动识别总体准确率 (66.3%) × 该格可分辨帧占比 —— 识别器仅对 ≥1px 的真实运动帧有效；
+- **生成准确率** = 可分辨帧占比（生成精度边界）：该格中真实渲染出的可分辨帧比例，低分辨率 / 长时长跌破亚像素 → 帧冗余归零。
+
+| 时长 ＼ 分辨率 | 64px | 128px | 224px | 320px | 448px | 640px |
+|---|---|---|---|---|---|---|
+| 0.5s | 30 / 45 | 46 / 70 | 46 / 70 | 46 / 70 | 46 / 70 | 46 / 70 |
+| 1.0s | 5 / 8 | 24 / 36 | 37 / 56 | 45 / 68 | 46 / 70 | 46 / 70 |
+| 2.0s | 0 / 0 | 4 / 6 | 19 / 29 | 30 / 46 | 37 / 56 | 42 / 63 |
+| 4.0s | 0 / 0 | 0 / 0 | 2 / 3 | 6 / 9 | 16 / 24 | 29 / 44 |
+| 8.0s | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 2 / 3 | 5 / 8 |
+
+→ 完整概率云图（热力 + 逐帧散点）：[video_generation_precision_cloud.html](src/experiments/video_generation_precision_cloud.html)；数据源 [video_generation_precision_results.json](src/experiments/video_generation_precision_results.json)。
 
 <br />
 
@@ -225,34 +257,44 @@ CuteMamen 插件体系按职责分三类，靠**事件总线 + 请求/应答**�
 
 > 服务型插件不携带训练读出头，能力以"对外服务 + 生态协同"衡量；实现见
 > [chat.py](src/cutemamen/chat.py) · [llm_provider.py](src/cutemamen/llm_provider.py)，
-> 插件用法见 [docs/CUTEMAMEN.md](docs/CUTEMAMEN.md)。
+> 插件用法见 [docs/技术文档/PLUGIN_STANDARD.md](docs/技术文档/PLUGIN_STANDARD.md)。
 
 ## 路线图
 
-历史里程碑（v0.2.0–v0.14.6）已全部完成并归档至 [docs/HISTORY.md](docs/HISTORY.md)。
+历史里程碑（v0.2.0–v0.17.0）已全部完成并归档至 [docs/历史文档/VERSION_HISTORY.md](docs/历史文档/VERSION_HISTORY.md)。
 当前主线：**图形化节点工作流 对齐 ComfyUI**，迈向正式版 **1.0.0**。
-实现进度、待补齐项与 1.0.0 验收清单见 [ComfyUI 差距路线图](docs/COMFYUI_GAP_ROADMAP.md)；
+实现进度、待补齐项与 1.0.0 验收清单见 [ComfyUI 差距路线图](docs/发行现状/COMFYUI_GAP_ROADMAP.md)；
 补完该清单即可发布正式版 1.0.0。并行线程：**扩展更多真实数据集与真实语料、持续丰富
 工作型 / 服务型插件生态**（无版本承诺），以持续支撑多任务真实基准与在线持续学习验证。
 
-**待补齐问题**：**视频生成插件能力过弱**，且**缺乏分辨率 / 时长的准确率分布图**——
-当前 VideoMaking 偏重镜头运动识别（真实运镜曲线 · 10 类，61.7%），作为"视频生成"插件的
-内容生成面不足；同时需补充不同分辨率 / 时长下的准确率分布图，以量化视频插件的生成精度边界。
+**待补齐问题（视频插件，v0.17.0 已解决）**：视频生成插件的**内容生成面不足**与**缺乏分辨率 / 时长的准确率分布图**——
+已新增生成精度边界实验 (R4b) 用真实关键帧（真实运维时序重排）× 真实运镜渲染，度量
+**分辨率 × 时长** 网格上的生成精度（可分辨帧占比 = 相机位移 ≥1px 的步骤比例）并输出**概率云图**
+（`video_generation_precision_cloud.html`）；同时把运动识别训练样本 200 → **500**、水库
+**多一层 16 单元嵌套**（depth=2），识别精度 61.7% → **66.3%** ± 9.3%。复现：
+`python src/experiments/video_motion_benchmark.py` 与
+`python src/experiments/video_generation_precision.py`。
 
 ## 文档
 
-* [架构说明](docs/ARCHITECTURE.md)
-* [快速开始](docs/QUICKSTART.md)
-* [插件标准与模态面存档](docs/CUTEMAMEN.md)
-* [实验记录与版本历史](docs/HISTORY.md)
-* [更新日志](docs/CHANGELOG.md)
-* [兼容性规范](docs/COMPATIBILITY.md)
-* [参与贡献](docs/CONTRIBUTING.md)
-* [发行说明](docs/RELEASE_NOTES.md)
-* [ComfyUI 差距路线图 → 1.0.0](docs/COMFYUI_GAP_ROADMAP.md)
-* [彩蛋（原「菜单·植物大战 VS Code」）](#彩蛋)
-* [开源许可证 GPL-3.0](LICENSE)
-* [开源许可证译文（仅供参考，不具备法律效力）](docs/LICENSE-Chinese.md)
+* **技术文档**
+  * [架构说明](docs/技术文档/ARCHITECTURE.md)
+  * [快速开始](docs/技术文档/QUICKSTART.md)
+  * [模态存档（.dfpkg）](docs/技术文档/MODALITY_ARCHIVE.md)
+  * [插件标准（.CuteMamen / CubeGPTKernel）](docs/技术文档/PLUGIN_STANDARD.md)
+* **历史文档**
+  * [实验记录](docs/历史文档/EXPERIMENT_RECORDS.md)
+  * [版本历史（含 Pre0.1）](docs/历史文档/VERSION_HISTORY.md)
+  * [更新日志](docs/历史文档/CHANGELOG.md)
+  * [彩蛋（原「菜单·植物大战 VS Code」）](#彩蛋)
+* **规范文档**
+  * [兼容性规范](docs/规范文档/COMPATIBILITY.md)
+  * [参与贡献](docs/规范文档/CONTRIBUTING.md)
+* **发行现状**
+  * [ComfyUI 差距路线图 → 1.0.0（采纳差异）](docs/发行现状/COMFYUI_GAP_ROADMAP.md)
+* **合规文档**
+  * [开源许可证 GPL-3.0（原文）](docs/合规文档/LICENSE.md)
+  * [开源许可证译文（仅供参考，不具备法律效力）](docs/合规文档/LICENSE-Chinese.md)
 
 ### 项目结构
 
