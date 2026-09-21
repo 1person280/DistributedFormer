@@ -153,37 +153,59 @@ def _extract_message(data: Any) -> str:
 
 
 def _local_reply(message: str, history: List[str]) -> str:
+    """本地真人感引擎: 4K 参数统计模型 (真实语料) 出核心回复 + 意图钩子
+
+    依赖 src.data.real_dialogues.ChatTransitionModel (字符二元转移矩阵,
+    训练于互联网抓取并清洗的真实中英文对话)。意图 (问候/致谢/情绪) 走
+    对应自然转折, 但正文由模型从真实语料重组 → 一改固定模板的"套话味",
+    更接近真人闲聊的多样性 + 口语化。
+    """
     text = message.strip()
     low = text.lower()
 
-    # 问候 → 接住 + 开放追问
+    body = _MODEL.reply(text) if _MODEL is not None else "嗯，我在听，然后呢？"
+
+    # 问候 → 接住 + 开放追问 (保证"嗨/你好"可被识别, 含"好")
     if any(g in low for g in _GREET):
-        return "嗨，你也好呀！今天过得怎么样？"
+        return f"嗨，你也好呀！{_anon_ask()}"
 
     # 致谢 → 自然接住
     if any(t in low for t in _THANKS):
-        return "不客气～有需要随时吱一声就行。"
+        return f"不客气，随时吱一声就行。"
 
     # 情绪 → 共情 + 邀请展开
-    for kw, reply in _EMO:
+    for kw, seed in _EMO:
         if kw in low:
-            return reply
+            return f"{body}，{seed}"
 
-    # 问句 → 反射关键词 + 反问 (有来有回)
+    # 问句 → 反弹真实语料里的相关回应 (有来有回)
     if low.endswith("?") or low.endswith("？") or \
             any(w in low for w in _QUESTION_WORDS):
-        kw = _pick_keyword(text)
-        if kw:
-            return (f"嗯，{kw}这个事……我自己也琢磨过一点。"
-                    f"你又是怎么注意到它的呀？")
+        if body and body != text:
+            return body
         return "好问题。你是自己想到的，还是别人提的呀？"
 
-    # 默认: 接住句子里的关键词, 延续话题 + 反问
+    # 默认: 模型从真实语料续写, 若退火到原文则补一句自然过渡
+    if body and body != text:
+        return body
     kw = _pick_keyword(text)
     if kw:
-        return (f"哎，说到{kw}我倒是挺好奇的——"
-                f"你最近是因为这个才忙起来的吗？")
+        return f"哎，说到{kw}我倒是挺好奇的——你最近是因为这个才忙起来的吗？"
     return "嗯，我在听。然后呢？你接着说？"
+
+
+def _anon_ask() -> str:
+    """随机的开放追问 (让问候不千篇一律)"""
+    import random
+    return random.choice(("你今天过得怎么样？", "在忙些什么呀？", "今天心情如何？"))
+
+
+# 4K 参数字符二元转移模型 (真实语料), 模块加载时构建一次
+try:
+    from src.data.real_dialogues import ChatTransitionModel as _ChatTM
+    _MODEL = _ChatTM()
+except Exception:  # 语料缺失或损坏时回退 None, 走模板兜底
+    _MODEL = None
 
 
 def _pick_keyword(text: str) -> str:

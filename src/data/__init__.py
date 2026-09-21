@@ -12,4 +12,8 @@
                           → 文本内容类型分类 (heading/code/list/table/
                           paragraph), 直接消费 64 比特 utf8-mb4 分类式
                           token (embed_tokens 折叠 + token_seq 序列)
+    real_dialogues.py     真实对话语料 (互联网抓取 + 清洗: MandarinHero
+                          100 中文对话 / NTU Mini-conversations 英文 /
+                          DailyDialog), → 4K 参数统计对话模型
+                          (ChatTransitionModel, 字符二元转移训练于真实语料)
 """

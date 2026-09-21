@@ -1,4 +1,4 @@
-"""预制存档 (蓝图 Blueprint, v0.18.1) — 走 ComfyUI 规范的表层工作流 + 模型存档
+"""预制存档 (蓝图 Blueprint, v0.19.0) — 走 ComfyUI 规范的表层工作流 + 模型存档
 
 「蓝图」是一个把表层节点图工作流 (workflow) 与模型存档打包成单个
 分发文件的自包含存档。设计要点:
@@ -307,7 +307,7 @@ def _max_numeric_id(items: List[Dict[str, Any]]) -> int:
 def save_blueprint(name: str, workflow: Dict[str, Any],
                    models: Optional[List[str]] = None,
                    out_dir: str = BLUEPRINT_DIR,
-                   core_version: str = "0.18.1") -> str:
+                   core_version: str = "0.19.0") -> str:
     """把工作流(内部格式)+模型存档打包成 .blueprint.zip (ZIP_STORED 不压缩)
 
     workflow: 内部节点图 dict (或已是 ComfyUI 规范, 由 keys 自动识别)

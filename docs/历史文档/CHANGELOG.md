@@ -1,5 +1,45 @@
 # 更新日志
 
+## v0.19.0 服务端执行 · 可搜索节点库 + ComfyUI JSON 兼容 (2026-09-21)
+
+把"执行"从纯前端的入队提升为**服务端管理的真实任务队列**，并补齐
+分类可搜索节点库、模板示例图库、ComfyUI 原生 JSON 导入导出。
+
+### 新增
+- **服务端任务队列**（`src/deployment/task_queue.py`，`TaskManager`）：
+  `POST /api/workflow/submit` 立即返回全局 `task_id`；后台**单 worker 串行**
+  消费（CuteMamenKernel 非线程安全，绝不并行）；`GET /api/tasks`、
+  `GET /api/tasks/<id>` 查询状态/结果/历史。
+- **全局中断**：`POST /api/workflow/interrupt` 置位当前任务 `stop_event`
+  （`WorkflowEngine.run` 在节点边界检查）+ 清空待处理队列；中断以节点边界
+  为准、已执行节点结果保留。前端 `run()` 新增可选 `stop_event` 参数，同步语义不变。
+- **历史持久化**：每个任务写 `cache/tasks/<id>.json`（临时文件 + `os.replace`
+  原子写），启动 `TaskManager._recover()` 恢复已完成历史。
+- **可搜索节点库**：节点调色板按 capability 分类折叠 + 文本过滤搜索
+  （双击画布 / Generate 页签）。
+- **模板示例图库**：工作流预设按用途分类浏览、一键加载；新增「Rust 双路扇出」
+  文本类预设。
+- **ComfyUI 原生 JSON**：`to_comfy`/`from_comfy`（复用 `src/blueprint.py` 纯
+  dict 层）暴露为 `POST /api/workflow/export_comfy` / `import_comfy`，前端可
+  导入/导出与 ComfyUI 一致的 `{nodes, links, groups}`。
+
+### 变更
+- 版本 0.18.1 → **0.19.0**（pyproject / `__version__` / `pkg.CORE_VERSION` /
+  `min_core_version` / `server_version`）。
+- 前端执行引擎改服务端轮询（700ms GET `/api/tasks`），侧栏「最近运行」+
+  全局 Interrupt；`list_workflows` 预设带 `category` 字段。
+
+### 测试
+- 新增 `src/tests/test_task_queue.py`（6 项）：提交即返回 id / pending→ok 状态
+  流转 / 中断保留已执行节点并跳过后续 / 中断清空待处理队列 / 历史落盘与恢复 /
+  同步 `engine.run` 语义不变。
+
+### 运行
+```
+python -m src.cli ui --host 127.0.0.1 --port 8011 --depth 1 --dim 16
+# 打开 http://127.0.0.1:8011/workflow → 双击画布加节点 → 入队执行 → 查看历史 → 全局中断
+```
+
 ## v0.18.1 更好的存档 · 预制存档（蓝图）走 ComfyUI 规范 (2026-09-20)
 
 新增**预制存档（蓝图 Blueprint）**：把表层工作流 + 模型存档打包为单个

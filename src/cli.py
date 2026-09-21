@@ -177,7 +177,7 @@ def cmd_blueprint(args):
         path = blueprint.save_blueprint(
             args.name, wf, models=args.models,
             out_dir=args.out_dir or blueprint.BLUEPRINT_DIR,
-            core_version=args.core_version or "0.18.1")
+            core_version=args.core_version or "0.19.0")
         print(f"✓ 蓝图已打包: {path}")
         print(f"  格式: {blueprint.BLUEPRINT_FORMAT} (zip, ZIP_STORED 不压缩)")
         return 0
@@ -333,7 +333,7 @@ def build_parser():
 
     p_blp = sub.add_parser(
         "blueprint", help="预制存档 (蓝图): ComfyUI 规范工作流 + 模型打包为 "
-                          ".blueprint.zip (ZIP_STORED 不压缩, v0.18.1)")
+                          ".blueprint.zip (ZIP_STORED 不压缩, v0.19.0)")
     p_blp.add_argument("action", choices=["save", "load", "list"],
                        help="save=打包  load=解包  list=列出")
     p_blp.add_argument("--name", default=None, help="蓝图名称 (save)")
@@ -347,7 +347,7 @@ def build_parser():
     p_blp.add_argument("--dir", default=None,
                        help="蓝图目录 (list, 默认 cache/blueprints)")
     p_blp.add_argument("--core-version", default=None,
-                       help="清单 core_version (save, 默认 0.18.1)")
+                       help="清单 core_version (save, 默认 0.19.0)")
     p_blp.set_defaults(func=cmd_blueprint)
 
     p_test = sub.add_parser("test", help="运行模块自检")

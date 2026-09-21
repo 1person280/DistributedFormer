@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-节点图工作流 (v0.18.1) — ComfyUI 式自定义模型工作流
+节点图工作流 (v0.19.0) — ComfyUI 式自定义模型工作流
 
 零第三方依赖, 纯手写 vanilla JS/HTML/CSS 前端 + stdlib http.server 后端。
 借鉴 ComfyUI 交互: 自由拼搭任意 DAG (输入→模型→输出 可扇出/汇聚/驳接),
@@ -32,7 +32,8 @@ import os
 import re
 import copy
 import time
-from typing import Any, Dict, List
+import threading
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -41,7 +42,7 @@ from src.cutemamen.kernel import CuteMamenKernel
 # 工作流落盘目录 (沿用项目统一缓存根 ./cache, 与 DEFAULT_PKG_DIR 同层级)
 WORKFLOW_DIR = os.path.join("cache", "workflows")
 
-_VERSION = "0.16.0"
+_VERSION = "0.19.0"
 
 # 名称清洗: 仅保留中英文/数字/下划线/连字符/点, 防路径穿越
 _NAME_CLEAN = re.compile(r"[^\w\u4e00-\u9fff._-]+")
@@ -65,13 +66,112 @@ def _clean_name(name: str) -> str:
     return name or "workflow"
 
 
-def _incoming_data(srcs: List[str], out: Dict[str, Dict]) -> Any:
-    """上游数据取法: 无/单/多入边"""
+def _upstream(src: str, from_port: Optional[str],
+              out: Dict[str, Dict]) -> Any:
+    """按端口取上游数据: 优先 out["<src>:<from_port>"], 回退 out[src]"""
+    key = f"{src}:{from_port}" if from_port else src
+    entry = out.get(key) or out.get(src) or {}
+    return entry.get("data")
+
+
+def _incoming_data(srcs: List[Any], out: Dict[str, Dict]) -> Any:
+    """上游数据取法: 无/单/多入边 (srcs 为 (src, from_port, to_port) 三元组)"""
     if not srcs:
         return None
     if len(srcs) == 1:
-        return out.get(srcs[0], {}).get("data")
-    return {"inputs": {s: out.get(s, {}).get("data") for s in srcs}}
+        s, fp, _tp = srcs[0]
+        return _upstream(s, fp, out)
+    return {"inputs": {f"{s}:{fp}": _upstream(s, fp, out)
+                       for (s, fp, _tp) in srcs}}
+
+
+# ── 轻量条件谓词求值 (条件模块用) ───────────────────────────
+_OP = re.compile(r"^(?P<path>[\w.]+)\s*(?P<op>==|!=|>=|<=|>|<|contains)"
+                 r"\s*(?P<val>.+)$")
+# 无路径表达式: 直接对整条数据求值, 如 `contains '你'`
+_OP2 = re.compile(r"^(?P<op>==|!=|>=|<=|>|<|contains)\s*(?P<val>.+)$")
+
+
+def _resolve_path(data: Any, path: str) -> Any:
+    cur = data
+    for key in path.split("."):
+        if isinstance(cur, dict) and key in cur:
+            cur = cur[key]
+        else:
+            return None
+    return cur
+
+
+def _eval_cond(data: Any, expr: str) -> bool:
+    """对 data 求值一条条件。支持: `path op 字面量`, op ∈ == != >= <= > < contains;
+    无运算符则视为路径是否存在且真值。"""
+    expr = (expr or "").strip()
+    if not expr:
+        return False
+    m = _OP.match(expr)
+    if not m:
+        m2 = _OP2.match(expr)
+        if not m2:
+            return bool(_resolve_path(data, expr))
+        path, op, raw = None, m2.group("op"), m2.group("val")
+    else:
+        path, op, raw = m.group("path"), m.group("op"), m.group("val").strip()
+    val = _resolve_path(data, path) if path else data
+    if (raw.startswith('"') and raw.endswith('"')) or \
+       (raw.startswith("'") and raw.endswith("'")):
+        lit, cmp_str = raw[1:-1], True
+    else:
+        try:
+            lit, cmp_str = float(raw), False
+        except ValueError:
+            lit, cmp_str = raw, True
+    if op == "contains":
+        return lit in (str(val) if val is not None else "")
+    if val is None:
+        return (lit in (None, "null", "")) if op == "==" else (op != "==")
+    if cmp_str:
+        sval = str(val)
+        return {"==": sval == str(lit), "!=": sval != str(lit),
+                ">": sval > str(lit), ">=": sval >= str(lit),
+                "<": sval < str(lit), "<=": sval <= str(lit)}[op]
+    try:
+        nval = float(val)
+    except (TypeError, ValueError):
+        return False
+    return {"==": nval == lit, "!=": nval != lit, ">": nval > lit,
+            ">=": nval >= lit, "<": nval < lit, "<=": nval <= lit}[op]
+
+
+# ── 结构化模型输出 (类别 + 内容) ───────────────────────────
+_SPIKE_KEYS = ("logits", "vector", "spike", "embedding", "prediction", "output")
+
+
+def _typed_outputs(route: str, res: Any) -> Optional[List[Dict[str, Any]]]:
+    """把插件返回归一化为结构化输出列表 [{category, content}]:
+    video → frame+text; chat → text; 分类模型 → text+spike(若有); 兜底 → text"""
+    if res is None:
+        return None
+    route = route or ""
+    safe = _json_safe(res)
+    if "video" in route:
+        content = ({k: v for k, v in safe.items() if k != "frames"}
+                   if isinstance(safe, dict) else safe)
+        summary = content.get("summary") if isinstance(content, dict) else None
+        return [{"category": "frame", "content": content},
+                {"category": "text", "content": summary}]
+    if "chat" in route:
+        text = safe.get("reply") if isinstance(safe, dict) else safe
+        return [{"category": "text", "content": text}]
+    spike = None
+    if isinstance(res, dict):
+        for k in _SPIKE_KEYS:
+            if k in res:
+                spike = _json_safe(res[k])
+                break
+    out = [{"category": "text", "content": safe}]
+    if spike is not None:
+        out.append({"category": "spike", "content": spike})
+    return out
 
 
 class WorkflowEngine:
@@ -100,13 +200,14 @@ class WorkflowEngine:
         return sorted(out.values(), key=lambda m: (m["route"] or "", m["name"]))
 
     # ── 拓扑执行 ───────────────────────────────────────────
-    def run(self, workflow: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, workflow: Dict[str, Any],
+            stop_event: Optional[threading.Event] = None) -> Dict[str, Any]:
         nodes: Dict[str, Dict] = {n["id"]: n for n in workflow.get("nodes", [])}
         edges: List[Dict] = workflow.get("edges", [])
         if not nodes:
             return {"ok": False, "error": "工作流为空 (没有节点)"}
 
-        inbound: Dict[str, List[str]] = {nid: [] for nid in nodes}
+        inbound: Dict[str, List[Any]] = {nid: [] for nid in nodes}
         out_adj: Dict[str, List[str]] = {nid: [] for nid in nodes}
         indeg: Dict[str, int] = {nid: 0 for nid in nodes}
         for e in edges:
@@ -115,15 +216,21 @@ class WorkflowEngine:
                 return {"ok": False, "error": f"边 {e.get('id')} 引用了不存在的节点"}
             out_adj[src].append(dst)
             if e.get("to_port") == "in":
-                inbound[dst].append(src)
+                inbound[dst].append((src, e.get("from_port"),
+                                     e.get("to_port")))
                 indeg[dst] += 1
 
         queue = [nid for nid, d in indeg.items() if d == 0]
         out: Dict[str, Dict] = {}
         results: Dict[str, Any] = {}
         log: List[Dict[str, Any]] = []
+        aborted = False
 
         while queue:
+            if stop_event is not None and stop_event.is_set():
+                log.append({"node_id": "_interrupt", "status": "aborted"})
+                aborted = True
+                break
             nid = queue.pop(0)
             node = nodes[nid]
             ntype = node.get("type")
@@ -140,9 +247,12 @@ class WorkflowEngine:
                 if indeg[dst] == 0:
                     queue.append(dst)
 
-        if len(results) < len(nodes):
+        if (not aborted) and len(results) < len(nodes):
             return {"ok": False, "error": "工作流存在环 (无法拓扑排序)"}
-        return {"ok": True, "results": results, "log": log}
+        rez: Dict[str, Any] = {"ok": True, "results": results, "log": log}
+        if aborted:
+            rez["aborted"] = True
+        return rez
 
     # ── 保存 / 加载 / 列出 ─────────────────────────────────
     def save(self, name: str, workflow: Dict[str, Any]) -> Dict[str, Any]:
@@ -160,7 +270,9 @@ class WorkflowEngine:
             for fn in sorted(os.listdir(WORKFLOW_DIR)):
                 if fn.endswith(".json"):
                     files.append({"name": fn[:-5], "is_preset": False})
-        presets = [{"name": k, "is_preset": True} for k in PRESETS]
+        presets = [{"name": k, "is_preset": True,
+                    "category": (PRESETS[k] or {}).get("category", "")}
+                   for k in PRESETS]
         return {"workflows": files, "presets": presets}
 
     def load(self, name: str) -> Dict[str, Any]:
@@ -178,7 +290,7 @@ class WorkflowEngine:
 
 
 def _run_node(engine: WorkflowEngine, nid: str, ntype: str,
-              params: Dict, inbound: Dict[str, List[str]],
+              params: Dict, inbound: Dict[str, List[Any]],
               out: Dict[str, Dict], results: Dict[str, Any],
               log: List[Dict[str, Any]]) -> None:
     """执行单个节点 (被 run 循环调用); 扇出/扇入均支持
@@ -187,6 +299,13 @@ def _run_node(engine: WorkflowEngine, nid: str, ntype: str,
       - 无入边          → 用 params.data (route 空 → no_output)
       - 单条入边        → 复用上游 data (逐节点传递, 保链式语义)
       - 多条入边(扇入)  → 汇聚为 {"inputs": {源节点: data}}
+
+    节点类型:
+      - model       通过 kernel.request 路由, 输出加结构化 typed 列表
+      - condition   对入边数据按 params.conditions 求值, 满足条件 → 对应
+                    端口同步扇出 out["<nid>:<label>"] (多条件满足 → 多路)
+      - feedback    SNN 脉冲回传补做: 把入边数据回传给 target 插件重跑
+      - output      汇聚所有入边数据展示
     """
     dt = time.time()
     if ntype == "input":
@@ -205,22 +324,78 @@ def _run_node(engine: WorkflowEngine, nid: str, ntype: str,
         res = engine.kernel.request({"topic": route, "data": data}) if route else None
         ms = round((time.time() - dt) * 1000, 2)
         out[nid] = {"topic": route, "data": res if res is not None else None}
-        results[nid] = {"type": "model", "route": route, "output": _json_safe(res)}
+        results[nid] = {"type": "model", "route": route,
+                        "output": _json_safe(res),
+                        "typed": _typed_outputs(route, res)}
         log.append({"node_id": nid,
                     "status": "ok" if res is not None else "no_output",
                     "ms": ms})
         return
+    if ntype == "condition":
+        conds = params.get("conditions") or []
+        data = _incoming_data(srcs, out)
+        matched = {}
+        for c in conds:
+            label = (c.get("label") or "").strip()
+            expr = (c.get("match") or "").strip()
+            if label and expr and _eval_cond(data, expr):
+                matched[label] = data
+        # 仅匹配的分支才有输出; 未匹配分支无端口条目 → 下游读不到数据
+        for label, d in matched.items():
+            out[f"{nid}:{label}"] = {"topic": "condition",
+                                     "data": d, "port": label}
+        ms = round((time.time() - dt) * 1000, 2)
+        results[nid] = {"type": "condition", "matched": list(matched),
+                        "output": {k: _json_safe(v)
+                                   for k, v in matched.items()}}
+        log.append({"node_id": nid,
+                    "status": "ok" if matched else "no_output",
+                    "ms": ms})
+        return
+    if ntype == "feedback":
+        target = params.get("target") or params.get("route") or ""
+        data = _incoming_data(srcs, out)
+        res = engine.kernel.feedback(data, target) if target else None
+        ms = round((time.time() - dt) * 1000, 2)
+        out[nid] = {"topic": "feedback",
+                    "data": res if res is not None else None}
+        results[nid] = {"type": "feedback", "target": target,
+                        "output": _json_safe(res)}
+        log.append({"node_id": nid,
+                    "status": "ok" if res is not None else "no_output",
+                    "ms": ms})
+        return
+    # reroute/线束: 汇聚多条入边成有序队列 (按拓扑序) 输出, 供下游排队消费
+    if ntype == "reroute":
+        queue = []
+        for (s, fp, _tp) in srcs:
+            d = _upstream(s, fp, out)
+            if d is not None:
+                queue.append(d)
+        out[nid] = {"topic": "reroute", "data": queue}
+        results[nid] = {"type": "reroute", "data": _json_safe(queue)}
+        ms = round((time.time() - dt) * 1000, 2)
+        log.append({"node_id": nid,
+                    "status": "ok" if queue else "no_output",
+                    "ms": ms})
+        return
     # output: 汇聚所有入边数据展示
-    up_all = {s: out.get(s, {}).get("data") for s in srcs}
-    out[nid] = {"topic": "", "data": (up_all.get(srcs[0]) if len(srcs) == 1
-                                      else ({"inputs": up_all} if srcs else None))}
-    results[nid] = {"type": "output", "data": _json_safe(out[nid]["data"])}
+    if len(srcs) == 1:
+        s, fp, _tp = srcs[0]
+        up = _upstream(s, fp, out)
+    elif srcs:
+        up = {"inputs": {f"{s}:{fp}": _upstream(s, fp, out)
+                         for (s, fp, _tp) in srcs}}
+    else:
+        up = None
+    out[nid] = {"topic": "", "data": up}
+    results[nid] = {"type": "output", "data": _json_safe(up)}
 
 
-# ── 内置样例工作流 (只读预设, 纯真实模型) ────────────────
+# ── 内置样例工作流 (只读预设, 纯真实模型, 可按 category 分类浏览) ──
 PRESETS: Dict[str, Dict[str, Any]] = {
     "Rust 代码分类": {
-        "name": "Rust 代码分类", "version": 1,
+        "name": "Rust 代码分类", "version": 1, "category": "文本",
         "nodes": [
             {"id": "in1", "type": "input", "x": 40, "y": 80,
              "params": {"topic": "rust",
@@ -237,8 +412,94 @@ PRESETS: Dict[str, Dict[str, Any]] = {
              "to": "out", "to_port": "in"},
         ],
     },
+    "Rust 双路扇出": {
+        "name": "Rust 双路扇出", "version": 1, "category": "文本",
+        "nodes": [
+            {"id": "in1", "type": "input", "x": 40, "y": 80,
+             "params": {"topic": "rust",
+                        "data": "fn bad() { let x = 1 }"}},
+            {"id": "m1", "type": "model", "x": 340, "y": 40,
+             "params": {"route": "rust", "data": None}},
+            {"id": "m2", "type": "model", "x": 340, "y": 200,
+             "params": {"route": "rust", "data": "fn x(){}"}},
+            {"id": "out1", "type": "output", "x": 640, "y": 40,
+             "params": {}},
+            {"id": "out2", "type": "output", "x": 640, "y": 200,
+             "params": {}},
+        ],
+        "edges": [
+            {"id": "e1", "from": "in1", "from_port": "out",
+             "to": "m1", "to_port": "in"},
+            {"id": "e2", "from": "in1", "from_port": "out",
+             "to": "m2", "to_port": "in"},
+            {"id": "e3", "from": "m1", "from_port": "out",
+             "to": "out1", "to_port": "in"},
+            {"id": "e4", "from": "m2", "from_port": "out",
+             "to": "out2", "to_port": "in"},
+        ],
+    },
+    "条件双路扇出": {
+        "name": "条件双路扇出", "version": 1, "category": "文本",
+        "nodes": [
+            {"id": "in1", "type": "input", "x": 40, "y": 80,
+             "params": {"topic": "chat", "data": "你好世界"}},
+            {"id": "model", "type": "model", "x": 300, "y": 80,
+             "params": {"route": "chat", "data": None}},
+            {"id": "cond", "type": "condition", "x": 560, "y": 80,
+             "params": {"conditions": [
+                 {"label": "A", "match": "reply contains '你'"},
+                 {"label": "B", "match": "reply contains '好'"},
+                 {"label": "C", "match": "reply contains '不存在'"}]}},
+            {"id": "outA", "type": "output", "x": 820, "y": -40,
+             "params": {}},
+            {"id": "outB", "type": "output", "x": 820, "y": 80,
+             "params": {}},
+            {"id": "outC", "type": "output", "x": 820, "y": 200,
+             "params": {}},
+        ],
+        "edges": [
+            {"id": "e1", "from": "in1", "from_port": "out",
+             "to": "model", "to_port": "in"},
+            {"id": "e2", "from": "model", "from_port": "out",
+             "to": "cond", "to_port": "in"},
+            {"id": "e3", "from": "cond", "from_port": "A",
+             "to": "outA", "to_port": "in"},
+            {"id": "e4", "from": "cond", "from_port": "B",
+             "to": "outB", "to_port": "in"},
+            {"id": "e5", "from": "cond", "from_port": "C",
+             "to": "outC", "to_port": "in"},
+        ],
+    },
+    "条件直测（无模型）": {
+        "name": "条件直测（无模型）", "version": 1, "category": "文本",
+        "nodes": [
+            {"id": "in1", "type": "input", "x": 40, "y": 80,
+             "params": {"topic": "raw", "data": "你好世界"}},
+            {"id": "cond", "type": "condition", "x": 320, "y": 80,
+             "params": {"conditions": [
+                 {"label": "A", "match": "contains '你'"},
+                 {"label": "B", "match": "contains '好'"},
+                 {"label": "C", "match": "contains '不存在'"}]}},
+            {"id": "outA", "type": "output", "x": 600, "y": -40,
+             "params": {}},
+            {"id": "outB", "type": "output", "x": 600, "y": 80,
+             "params": {}},
+            {"id": "outC", "type": "output", "x": 600, "y": 200,
+             "params": {}},
+        ],
+        "edges": [
+            {"id": "e1", "from": "in1", "from_port": "out",
+             "to": "cond", "to_port": "in"},
+            {"id": "e2", "from": "cond", "from_port": "A",
+             "to": "outA", "to_port": "in"},
+            {"id": "e3", "from": "cond", "from_port": "B",
+             "to": "outB", "to_port": "in"},
+            {"id": "e4", "from": "cond", "from_port": "C",
+             "to": "outC", "to_port": "in"},
+        ],
+    },
     "Video 渲染": {
-        "name": "Video 渲染", "version": 1,
+        "name": "Video 渲染", "version": 1, "category": "视频",
         "nodes": [
             {"id": "in1", "type": "input", "x": 40, "y": 80,
              "params": {"topic": "video",
@@ -336,6 +597,10 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
   color:#b5e0b5;margin:4px 0}
 .node-body .res{display:none;border-color:var(--line)}
 .node.done .res{display:block}
+.node-body .res .tbadge{display:inline-block;background:#2a3350;color:#cfd9ff;
+  border:1px solid var(--line);border-radius:10px;padding:0 8px;font-size:11px;
+  margin:2px 4px 2px 0;vertical-align:middle}
+.node-body .res code{color:#ffd7a1}
 /* 端口 socket */
 .socket{position:absolute;width:15px;height:15px;border-radius:50%;
   border:2px solid var(--node);cursor:crosshair;left:0;right:0;margin:auto}
@@ -405,6 +670,13 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
   justify-content:space-between;gap:8px}
 .add-item:hover{background:#3a3a3a}
 .add-item small{color:var(--mut);font-size:11px}
+.add-group{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;
+  color:var(--acc);padding:8px 8px 3px;cursor:pointer;user-select:none}
+.add-group .caret{transition:transform .12s;font-size:9px}
+.add-group.open .caret{transform:rotate(90deg)}
+.add-group small{color:var(--mut);font-weight:400;margin-left:auto}
+.add-group-items{padding-left:6px}
+.add-group.closed .add-group-items{display:none}
 /* ── 框选 ── */
 #rb{position:absolute;border:1px solid var(--acc);background:rgba(107,195,255,.10);
   display:none;pointer-events:none;z-index:2}
@@ -458,6 +730,10 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
 .sb-item .st{font-size:10px;font-weight:700}
 .sb-item .st.pending{color:var(--warn)}.sb-item .st.ok{color:var(--ok)}.sb-item .st.err{color:var(--err)}
 .sb-item .st.run{color:var(--acc)}
+.cat-head{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--acc);
+  padding:5px 6px;margin-top:2px;cursor:pointer;user-select:none}
+.cat-head small{color:var(--mut);font-weight:400;margin-left:auto}
+.cat-body{margin-left:4px}
 .sb-toggle{width:26px;height:26px;border-radius:5px;background:#2f2f2f;border:1px solid var(--line);
   color:var(--mut);cursor:pointer;font-size:14px;line-height:1;padding:0}
 .sb-toggle:hover{color:#fff;border-color:var(--acc)}
@@ -530,6 +806,7 @@ body{margin:0;font:13px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;
 <header class="toolbar">
   <button id="sbToggle" class="sb-toggle" title="侧边栏 (Ctrl+B)">☰</button>
   <div class="brand"><span class="logo">◈</span>DistributedFormer<span class="sub">workflow</span></div>
+  <a href="/" class="btn wf-back" title="返回控制台 (Type here to command)" style="margin-left:6px">⌂ 控制台</a>
   <div id="toolToggle" title="鼠标工具: 框选 / 拖拽画布">
     <button class="tl active" data-t="select"><span class="tl-ico">☐</span>框选</button>
     <button class="tl" data-t="drag"><span class="tl-ico">✥</span>拖拽</button>
@@ -600,16 +877,20 @@ const grpSeq={n:0};                               // 组 id 计数器
 let q=[], qCounter=1, qCurrent=null;              // 执行队列 (客户端)
 let running=false, runAbort=false, runSeq=0;      // 运行状态 / 递增取消令牌
 let sidebarCollapsed=false, sbTabEt='queue';      // 侧栏状态
-const CAT_COLOR={input:'#3a9d5d',model:'#3b5bff',output:'#c99a2e',reroute:'#8f8f8f'};
+const CAT_COLOR={input:'#3a9d5d',model:'#3b5bff',output:'#c99a2e',reroute:'#8f8f8f',condition:'#b26bf5',feedback:'#e0596f'};
 const NODE_W=210, SOCK_Y=28;                       // 节点宽, socket 世界Y(标题区)
-const TYPES={input:{title:'输入',color:'#3a9d5d',ins:[],outs:['data','meta']},
-             model:{title:'模型',color:'var(--blue)',ins:['seq','config'],outs:['logits','loss']},
-             output:{title:'输出',color:'#c99a2e',ins:['data','logits','loss'],outs:[]},
-             reroute:{title:'直通',color:'#8f8f8f',ins:['in'],outs:['out']}};
+const TYPES={input:{title:'输入',color:'#3a9d5d',ins:[],outs:['数据','元信息']},
+             model:{title:'模型',color:'var(--blue)',ins:['输入','配置'],outs:['脉冲 spike','文本 text','帧 frame','音频 audio']},
+             condition:{title:'条件',color:'#b26bf5',ins:['输入'],outs:['A','B','C']},
+             feedback:{title:'回传',color:'#e0596f',ins:['输入'],outs:['结果']},
+             output:{title:'输出',color:'#c99a2e',ins:['数据','脉冲','损失'],outs:[]},
+             reroute:{title:'线束',color:'#8f8f8f',ins:['输入1','输入2'],outs:['队列']}};
 const DEF={input:{topic:'',data:'fn main(){}'},
            model:{route:'',data:null},
+           condition:{conditions:[{label:'A',match:''},{label:'B',match:''}]},
+           feedback:{target:'',data:null},
            output:{},
-           reroute:{}};
+           reroute:{ins:['输入1','输入2']}};
 const world=$('world'), canvas=$('canvas');
 const rbEl=document.createElement('div');rbEl.id='rb';world.appendChild(rbEl);
 const ctxMenu=$('ctxMenu'), ctxItems=$('ctxItems');
@@ -667,10 +948,40 @@ function widgetHTML(n){
         placeholder="留空继承上游">${esc(p.data===null||p.data===undefined?'':(typeof p.data==='string'?p.data:JSON.stringify(p.data)))}</textarea>
       </div>`;
   }
+  if(n.type==='condition'){
+    const conds=n.params.conditions||[];
+    let rows='';
+    conds.forEach((c,i)=>{rows+=`<div class="cond-row">
+      <input type="text" data-w="condlabel" data-i="${i}" value="${esc(c.label||'')}"
+        placeholder="标签" style="width:44px;flex:none;margin:0">
+      <input type="text" data-w="condmatch" data-i="${i}" value="${esc(c.match||'')}"
+        placeholder='条件, 如 reply contains "你"' style="margin:0">
+    </div>`;});
+    return `<div class="node-widget">
+      <label>条件 (满足哪路 → 输出到哪路, 多路同步扇出)</label>
+      ${rows}
+      <button type="button" class="btn ghost" style="width:100%" data-w="condadd">＋ 加条件</button>
+      </div>`;
+  }
+  if(n.type==='feedback'){
+    const sel=p.target||p.route||'';
+    let opts='<option value="">— 回传目标模型 —</option>';
+    MODELS.forEach(m=>{const r=m.route||m.name;
+      opts+=`<option ${(sel===r)?'selected':''} value="${esc(r)}">${esc(m.name)}</option>`;});
+    return `<div class="node-widget">
+      <label>回传目标 (SNN 脉冲回传补做)</label>
+      <select data-w="target">${opts}</select>
+      <label>Data (override)</label>
+      <textarea data-w="data" rows="1" spellcheck="false"
+        placeholder="留空继承上游">${esc(p.data===null||p.data===undefined?'':(typeof p.data==='string'?p.data:JSON.stringify(p.data)))}</textarea>
+      </div>`;
+  }
   if(n.type==='output'){
     return `<div class="node-widget"><label>Output · 汇聚展示</label></div>`;
   }
-  return ''; // reroute
+  return `<div class="node-widget">
+    <label>线束 · 多路输入排队</label>
+    <button type="button" class="btn ghost" style="width:100%" data-w="harnessadd">＋ 加输入</button></div>`; // reroute/线束
 }
 function renderNodes(){
   world.querySelectorAll('.node').forEach(el=>el.remove());
@@ -690,7 +1001,10 @@ function renderNodes(){
     const note=n.note?`<div class="note">${esc(n.note)}</div>`:'';
     // 具名端口区 (in 靠左, out 靠右, 按端口名逐行排布)
     let portsHtml='';
-    const ip4=d.ins||[], op4=d.outs||[];
+    let ip4=d.ins||[], op4=d.outs||[];
+    if(n.type==='reroute'){ // 线束: 输入端口由 params.ins 动态决定
+      ip4=(n.params.ins&&n.params.ins.length)?n.params.ins:(DEF.reroute.ins||d.ins);
+    }
     if(ip4.length||op4.length){
       const rows=Math.max(ip4.length,op4.length);
       let acc='';
@@ -739,6 +1053,11 @@ function renderNodes(){
           n.params.route=q.value; renderNodes();
         }
         else if(kind==='route_man'){n.params.route=q.value; renderProp();}
+        else if(kind==='target'){n.params.target=q.value; renderProp();}
+        else if(kind==='condlabel'||kind==='condmatch'){
+          const i=+q.dataset.i; const c=(n.params.conditions||[])[i];
+          if(c){if(kind==='condlabel')c.label=q.value;else c.match=q.value; renderProp();}
+        }
         else if(kind==='topic'){n.params.topic=q.value; renderProp();}
         else if(kind==='data'){
           if(q.tagName==='TEXTAREA'){n.params.data=parseData(q.value);}
@@ -753,12 +1072,28 @@ function renderNodes(){
         w.onclick=()=>{_fileNode=n;$('fileData').click();};
         return;
       }
+      if(w.dataset.w==='condadd'){ // 追加一条条件
+        w.onclick=()=>{pushHist();n.params.conditions=n.params.conditions||[];
+          n.params.conditions.push({label:'',match:''});renderNodes();};
+        return;
+      }
+      if(w.dataset.w==='harnessadd'){ // 线束加一条输入端口
+        w.onclick=()=>{pushHist();n.params.ins=n.params.ins||(DEF.reroute.ins.slice());
+          n.params.ins.push('输入'+(n.params.ins.length+1));renderNodes();};
+        return;
+      }
       w.addEventListener(w.tagName==='SELECT'?'change':'input',e=>apply(e.target));
     });
     if(n._err){el.classList.add('done');el.querySelector('.res').textContent=n._err;
       el.querySelector('.res').style.color='var(--err)';}
     else if(n._result!==undefined){el.classList.add('done');
-      el.querySelector('.res').textContent=trunc(n._result,300);}
+      const resEl=el.querySelector('.res');
+      const typed=n._result&&n._result.typed;
+      if(Array.isArray(typed)){const badge={spike:'⚡ 脉冲',text:'💬 文本',frame:'🎞 帧',audio:'🔊 音频'};
+        resEl.innerHTML=typed.map(t=>`<span class="tbadge">${badge[t.category]||t.category}</span> `+
+          `<code>${esc(trunc(t.content,140))}</code>`).join('<br>');}
+      else{resEl.textContent=trunc(n._result,300);}
+    }
   }
   renderGroups();
   applySel();
@@ -1061,8 +1396,7 @@ canvas.addEventListener('drop',e=>{e.preventDefault();e.stopPropagation();
   if(!f){toast('未检测到文件');return;}
   if(m){addNode({t:'model',model:m});toast('拖入模型节点: '+m.name);return;}
   const rd=new FileReader();rd.onload=()=>{try{const obj=JSON.parse(rd.result);
-    if(obj&&(obj.nodes||obj.workflow)){
-      pushHist();loadGraph(obj.nodes?obj:obj.workflow);toast('拖入加载工作流: '+(obj.name||'workflow'));}
+    if(obj&&(obj.nodes||obj.workflow)){importWorkflow(obj.nodes?obj:obj.workflow);}
     else{toast('未识别文件 (非工作流 JSON)');}}
     catch(err){toast('无法解析文件: '+err.message);}};
   rd.readAsText(f);});
@@ -1265,17 +1599,18 @@ document.addEventListener('contextmenu',ev=>{
   }else{
     ev.preventDefault();
     menuItem('添加节点…',()=>openAdd(worldFrom(ev.clientX,ev.clientY)),'双击');
-    menuItem('添加直通节点',()=>addReroute(worldFrom(ev.clientX,ev.clientY)));
+    menuItem('添加线束节点',()=>addReroute(worldFrom(ev.clientX,ev.clientY)));
     if(clip)menuItem('粘贴节点',()=>pasteClip(32),'Ctrl+V');
     if(selSet.size>=2)menuItem('转为组 (Ctrl+G)',makeGroup,'Ctrl+G');
     if(groups.length)menuItem('全部分组',()=>{groups=[];renderGroups();});
     menuSep();
     menuItem('导出 JSON',exportJson,'Ctrl+Shift+S');
+    menuItem('导出 ComfyUI JSON',exportComfyJson);
     menuItem('导入 JSON',()=>$('fileIn').click());
     openMenu(ev.clientX,ev.clientY);
   }
 });
-function addReroute(w){pushHist();const id='n'+(++nidSeq);const n={id,type:'reroute',x:Math.max(20,w.x),y:Math.max(20,w.y),params:Object.assign({},DEF.reroute)};nodes.push(n);selectOne(n);renderNodes();renderEdges();updateMap();}
+function addReroute(w){pushHist();const id='n'+(++nidSeq);const n={id,type:'reroute',x:Math.max(20,w.x),y:Math.max(20,w.y),params:{ins:(DEF.reroute.ins.slice())}};nodes.push(n);selectOne(n);renderNodes();renderEdges();updateMap();}
 
 // ── 导入 / 导出 JSON ─────────────────────
 function formatNode(n){return{id:n.id,type:n.type,x:n.x,y:n.y,
@@ -1284,13 +1619,34 @@ function formatNode(n){return{id:n.id,type:n.type,x:n.x,y:n.y,
 function exportJson(){const wf={name:$('wfName').value||'wf',version:1,
   nodes:nodes.map(n=>formatNode(n)),edges:JSON.parse(JSON.stringify(edges)),
   groups:JSON.parse(JSON.stringify(groups))};
-  const blob=new Blob([JSON.stringify(wf,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download=(wf.name||'workflow')+'.json';a.click();URL.revokeObjectURL(a.href);}
+  downloadJson(wf,'workflow');}
 $('btnExport').onclick=exportJson;
+function exportComfyJson(){
+  const wf={nodes:nodes.map(n=>formatNode(n)),edges:JSON.parse(JSON.stringify(edges)),
+    groups:JSON.parse(JSON.stringify(groups))};
+  fetch('/api/workflow/export_comfy',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({workflow:wf})})
+    .then(r=>r.json()).then(j=>{if(!j.ok||!j.workflow){toast(j.error||'导出失败');return;}
+      downloadJson(j.workflow,'comfy');toast('已导出 ComfyUI 格式 JSON');})
+    .catch(()=>toast('导出失败'));
+}
+function downloadJson(obj,prefix){
+  const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=(prefix||'workflow')+'.json';a.click();URL.revokeObjectURL(a.href);}
+// 判别 ComfyUI 格式: 顶层有 links 且无 edges → 走后端转换后再加载
+async function importWorkflow(obj){
+  let graph=obj;
+  if(obj&&obj.links&&!(obj.edges)){            // ComfyUI 原生
+    try{const r=await fetch('/api/workflow/import_comfy',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({wf:obj})});
+      const j=await r.json();if(!j.ok||!j.workflow){toast(j.error||'ComfyUI 导入失败');return false;}
+      graph=j.workflow;}catch(e){toast('ComfyUI 导入失败: '+e.message);return false;}}
+  pushHist();loadGraph(graph);
+  toast('已导入 '+(graph.name||'workflow'));return true;}
 $('btnImport').onclick=()=>$('fileIn').click();
 $('fileIn').addEventListener('change',ev=>{const f=ev.target.files[0];if(!f)return;
-  const rd=new FileReader();rd.onload=()=>{try{const w=JSON.parse(rd.result);pushHist();loadGraph(w);toast('已导入 '+(w.name||'workflow'));}catch(e){toast('导入失败: '+e.message);}};
+  const rd=new FileReader();rd.onload=()=>{try{const w=JSON.parse(rd.result);importWorkflow(w);}catch(e){toast('导入失败: '+e.message);}};
   rd.readAsText(f);ev.target.value='';});
 // 文件输入: 把选中文件内容载入到某 Input 节点的 data
 let _fileNode=null;
@@ -1309,18 +1665,46 @@ let addPos={x:120,y:120};
 function openAdd(w){addPos={x:Math.max(40,w.x),y:Math.max(40,w.y)};
   $('addOverlay').classList.add('show');$('addSearch').value='';filterAdd('');$('addSearch').focus();}
 function closeAdd(){$('addOverlay').classList.remove('show');}
+// 分组构建: 基础节点一组, 模型按 capability 分类折叠; 支持搜索过滤/打分
+function addGroups(q){
+  const groups=[];
+  groups.push({key:'基础',items:[
+    {t:'input',label:'输入 (Input)',sub:'topic + data',color:'var(--green)'},
+    {t:'condition',label:'条件 (Condition)',sub:'满足条件 → 对应端口扇出',color:'#b26bf5'},
+    {t:'feedback',label:'回传 (Feedback)',sub:'SNN 脉冲回传补做',color:'#e0596f'},
+    {t:'output',label:'输出 (Output)',sub:'展示结果',color:'#c99a2e'},
+    {t:'reroute',label:'线束 (Harness)',sub:'多路输入排队汇流',color:'#8f8f8f'},
+  ]});
+  const byCap={};
+  MODELS.forEach(m=>{
+    const cap=m.capability||m.base_model||m.route||m.name||'模型';
+    (byCap[cap]=byCap[cap]||[]).push({t:'model',label:'模型 · '+m.name,sub:'route='+(m.route||''),model:m,color:'var(--blue)'});
+  });
+  Object.keys(byCap).sort().forEach(cap=>groups.push({key:cap,items:byCap[cap]}));
+  if(!q.trim())return groups;                       // 无搜索 → 全量分组
+  const out=[];
+  groups.forEach(g=>{
+    const hit=g.items.filter(it=>{
+      const s=(it.label+' '+(it.sub||'')).toLowerCase();
+      return s.includes(q);
+    });
+    if(hit.length)out.push({key:g.key,items:hit});
+  });
+  return out;
+}
 function filterAdd(q){
   const list=$('addList');list.innerHTML='';q=(q||'').toLowerCase();
-  const items=[];
-  items.push({t:'input',label:'输入 (Input)',sub:'topic + data',color:'var(--green)'});
-  items.push({t:'output',label:'输出 (Output)',sub:'展示结果',color:'#c99a2e'});
-  items.push({t:'reroute',label:'直通 (Reroute)',sub:'透传中间节点',color:'#8f8f8f'});
-  MODELS.forEach(m=>items.push({t:'model',label:'模型 · '+m.name,sub:'route='+(m.route||''),model:m,color:'var(--blue)'}));
-  items.forEach(it=>{const name=(it.label+' '+(it.sub||'')).toLowerCase();
-    if(q&&!name.includes(q))return;
-    const d=document.createElement('div');d.className='add-item';
-    d.innerHTML=`<span>${esc(it.label)}</span><small>${esc(it.sub||'')}</small>`;
-    d.onclick=()=>{addNode(it);closeAdd();};list.appendChild(d);});
+  addGroups(q).forEach(g=>{
+    const grp=document.createElement('div');grp.className='add-group open';grp.dataset.key=g.key;
+    grp.innerHTML=`<span class="caret">▶</span><span>${esc(g.key)}</span><small>${g.items.length}</small>`;
+    const wrap=document.createElement('div');wrap.className='add-group-items';
+    g.items.forEach(it=>{
+      const d=document.createElement('div');d.className='add-item';
+      d.innerHTML=`<span>${esc(it.label)}</span><small>${esc(it.sub||'')}</small>`;
+      d.onclick=()=>{addNode(it);closeAdd();};wrap.appendChild(d);});
+    grp.onclick=()=>{const closed=grp.classList.toggle('closed');wrap.style.display=closed?'none':'';};
+    list.appendChild(grp);list.appendChild(wrap);
+  });
   list.scrollTop=0;
 }
 $('addSearch').addEventListener('input',e=>filterAdd(e.target.value));
@@ -1328,6 +1712,8 @@ $('addOverlay').addEventListener('keydown',e=>{if(e.key==='Escape')closeAdd();})
 function addNode(it){
   pushHist();
   const id='n'+(++nidSeq);const p=Object.assign({},DEF[it.t]);
+  if(Array.isArray(p.conditions))p.conditions=DEF[it.t].conditions.map(c=>Object.assign({},c)); // 深拷贝, 防共享
+  if(Array.isArray(p.ins))p.ins=p.ins.slice(); // 线束输入端口深拷贝, 防共享
   if(it.t==='model'&&it.model)p.route=it.model.route||it.model.name;
   const n={id,type:it.t,x:addPos.x,y:addPos.y,params:p};
   nodes.push(n);selectOne(n);renderNodes();renderEdges();updateMap();
@@ -1379,89 +1765,114 @@ mmEl.addEventListener('mousedown',ev=>{
   mapDrag={dx:mx-vmx, dy:my-vmy};
 });
 
-// ── 运行 (客户端队列 + 逐节点高亮执行) ────
+// ── 运行 (服务端任务队列 + 轮询 + 逐节点高亮) ────
 $('btnRun').onclick=enqueue;
+let pollTimer=null, lastAnimId=0, srvTasks=[];
 function wfSerializeForRun(){return{name:$('wfName').value||'wf',version:1,
   nodes:nodes.map(n=>({id:n.id,type:n.type,x:n.x,y:n.y,params:n.params})),
   edges:JSON.parse(JSON.stringify(edges))};}
-function enqueue(){const item={id:qCounter++,wf:wfSerializeForRun(),status:'pending',
-  start:null,ms:0,totalOk:0,error:null};q.push(item);updateQueueBadge();renderQueue();
-  if(!running&&!runAbort)pumpQueue();}
-async function pumpQueue(){
-  while(q.length&&!runAbort){
-    running=true;updateQueueBadge();
-    const item=q.shift();qCurrent=item;item.status='running';item.start=Date.now();renderQueue();
-    await execWF(item);
-    qCurrent=null;renderQueue();
-  }
-  running=false;runAbort=false;updateQueueBadge();
+function enqueue(){
+  const wf=wfSerializeForRun();$('btnRun').disabled=true;
+  fetch('/api/workflow/submit',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({workflow:wf,name:wf.name})})
+    .then(r=>r.json()).then(j=>{
+      if(!j.ok){$('btnRun').disabled=false;toast(j.error||'提交失败');return;}
+      setMsg(`任务 #${j.task_id} 已入队`);startPoll();})
+    .catch(()=>{$('btnRun').disabled=false;toast('提交失败');});
 }
-async function execWF(item){
-  $('btnRun').disabled=true;setMsg(`队列 #${item.id} 运行中…`);
-  // 逐节点按拓扑依次高亮执行
+function startPoll(){if(pollTimer)return;pollTimer=setInterval(pollTasks,700);pollTasks();}
+async function pollTasks(){
+  let j;try{const r=await fetch('/api/tasks');j=await r.json();}catch(e){return;}
+  if(!j.ok)return;
+  const tasks=j.tasks||[];renderQueue(tasks);
+  const runn=tasks.find(t=>t.state==='running');
+  const hasPending=runn||tasks.some(t=>t.state==='pending');
+  $('btnRun').disabled=hasPending;
+  // 最近完成且未播放的 ok 任务 → 逐节点高亮
+  const newest=tasks.filter(t=>t.state==='ok'&&t.id>lastAnimId)
+    .sort((a,b)=>a.id-b.id).pop();
+  if(newest){lastAnimId=newest.id;animateTask(newest);}
+  if(tasks.some(t=>t.state==='running'||t.state==='pending'))updateQueueBadge(tasks);
+  if(!hasPending){if(pollTimer){clearInterval(pollTimer);pollTimer=null;}updateQueueBadge(tasks);}
+}
+function animateTask(t){
   nodes.forEach(n=>{n._result=null;n._err=undefined;n._runStatus=undefined;n._runMs=undefined;});
   renderNodes();renderEdges();
-  let r,j;
-  try{
-    r=await fetch('/api/workflow/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workflow:item.wf})});
-    j=await r.json();
-  }catch(e){item.status='err';item.error=String(e);onRunDone(item);return;}
-  item.ms=Date.now()-item.start;
-  if(runAbort){item.status='aborted';onRunDone(item);return;}
-  if(!j.ok){item.status='err';item.error=j.error||'运行失败';setMsg(j.error||'运行失败','err');
-    onRunDone(item);return;}
-  const doneIds=new Set();
-  for(const L of (j.log||[])){
+  const log=t.log||[];const doneIds=new Set();
+  (async()=>{for(const L of log){
+    if(runAbort)break;
     const n=nodes.find(x=>x.id===L.node_id);
     if(n&&!n.bypass&&!n.mute&&!doneIds.has(n.id)){n._runStatus='run';renderNodes();renderEdges();}
     if(n)n._runMs=L.ms;
     await sleep(60);
-    if(runAbort)break;
-    const res=j.results&&j.results[L.node_id];
+    const res=t.results&&t.results[L.node_id];
     if(n){n._result=(res&&res.error)?undefined:res;n._err=res&&res.error?res.error:undefined;
       n._runStatus=(res&&res.error)?'err':((n.bypass||n.mute)?undefined:'ok');}
-    doneIds.add(L.node_id);
-    renderNodes();renderEdges();renderProp();appendLog(L);
+    doneIds.add(L.node_id);renderNodes();renderEdges();renderProp();appendLog(L);
   }
-  item.totalOk=(j.log||[]).filter(L=>L.status==='ok').length;item.error=null;item.status='ok';
-  onRunDone(item);
-  setMsg(`队列 #${item.id} 完成 · ${item.totalOk} 节点输出结果`,'ok');
+  const ok=log.filter(L=>L.status==='ok').length;
+  setMsg(`任务 #${t.id} 完成 · ${ok} 节点输出结果`,'ok');})();
 }
-function onRunDone(item){$('btnRun').disabled=false;qHistory.unshift(item);
-  if(qHistory.length>50)qHistory.pop();renderQueue();updateQueueBadge();}
 function appendLog(L){const lg=$('log');lg.innerHTML='';
   const d=document.createElement('div');d.className=L.status;
   d.textContent=`#${L.node_id} · ${L.status}${L.ms!==undefined?' · '+L.ms+'ms':''}${L.error?' · '+L.error:''}`;
   lg.appendChild(d);}
 
 // ── 左侧边栏 (Queue / Load / Explorer) ────
-let qHistory=[]; // 最近运行记录
-function updateQueueBadge(){const c=$('queueCnt');const n=(q.length)+((qCurrent)?1:0);
-  c.textContent=n;$('queueBadge').classList.toggle('running',running);}
+function updateQueueBadge(tasks){const t=tasks||srvTasks;const running=t.some(x=>x.state==='running');
+  const n=t.filter(x=>x.state==='running').length+t.filter(x=>x.state==='pending').length;
+  $('queueCnt').textContent=n;$('queueBadge').classList.toggle('running',running);}
 function setTab(t){
   sbTabEt=t;document.querySelectorAll('#sbTabs .tb').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
-  if(t==='load')renderLoadTab();else if(t==='explore')renderExploreTab();else renderQueue();}
-function renderQueue(){updateQueueBadge();if(sbTabEt!=='queue'){
-  $('sbPanel').innerHTML='';return;}
+  if(t==='load')renderLoadTab();else if(t==='explore')renderExploreTab();else renderQueue(srvTasks);}
+function renderQueue(tasks){
+  srvTasks=tasks||srvTasks;updateQueueBadge(srvTasks);
+  if(sbTabEt!=='queue'){$('sbPanel').innerHTML='';return;}
   const p=$('sbPanel');let h='';
-  h+=`<div class="title">执行队列 (${q.length+(running?1:0)})</div>`;
-  if(qCurrent)h+=`<div class="sb-item sel"><span>#${qCurrent.id} ${qCurrent.wf.name}</span><span class="st run">● 运行中</span></div>`;
-  q.forEach(it=>{h+=`<div class="sb-item"><span>#${it.id} ${it.wf.name}</span><span class="st pending">排队</span></div>`;});
-  if(!qCurrent&&!q.length)h+=`<div class="hint">队列空闲 — 点击 Run 执行</div>`;
-  h+=`<div class="title">最近运行</div>`;
-  if(!qHistory.length)h+=`<div class="hint">暂无记录</div>`;
-  qHistory.forEach(it=>{const st=it.status==='ok'?'ok':it.status==='err'?'err':'pending';
-    const label=it.status==='ok'?('ok · '+it.totalOk):(it.error?('err · '+(it.error||'').slice(0,18)):(it.status||'')) ;
-    h+=`<div class="sb-item"><span>#${it.id} ${it.wf.name}</span><span class="st ${st}">${label}</span></div>`;});
-  p.innerHTML=h;}
+  const running=srvTasks.find(t=>t.state==='running');
+  const pending=srvTasks.filter(t=>t.state==='pending');
+  const done=srvTasks.filter(t=>['ok','err','aborted'].includes(t.state)).slice(0,20);
+  h+=`<div class="title">执行队列 (${pending.length+(running?1:0)})</div>`;
+  if(running)h+=`<div class="sb-item sel"><span>#${running.id} ${esc(running.name)}</span><span class="st run">● 运行中</span></div>`;
+  pending.forEach(it=>{h+=`<div class="sb-item"><span>#${it.id} ${esc(it.name)}</span><span class="st pending">排队</span></div>`;});
+  if(!running&&!pending.length)h+=`<div class="hint">队列空闲 — 点击 Run 入队</div>`;
+  h+=`<div class="title">最近运行 (${done.length})</div>`;
+  if(!done.length)h+=`<div class="hint">暂无记录</div>`;
+  done.forEach(it=>{const st=it.state==='ok'?'ok':it.state==='err'?'err':'pending';
+    const label=it.state==='ok'?('ok · '+((it.log||[]).filter(L=>L.status==='ok').length))
+      :(it.error?('err · '+(it.error||'').slice(0,18)):(it.state||''));
+    h+=`<div class="sb-item taskit" data-id="${it.id}" title="点击回看 / 复用"><span>#${it.id} ${esc(it.name)}</span><span class="st ${st}">${label}</span></div>`;});
+  p.innerHTML=h;
+  p.querySelectorAll('.taskit').forEach(el=>el.onclick=()=>viewTask(Number(el.dataset.id)));}
+async function viewTask(tid){
+  const r=await fetch('/api/tasks/'+tid);const j=await r.json();
+  if(!j.ok||!j.task){toast('任务不存在');return;}
+  const t=j.task;
+  if(t.workflow&&t.workflow.nodes){pushHist();loadGraph(t.workflow);}
+  runAbort=false;
+  if(t.state==='ok')animateTask(t);
+  setMsg(`已回看任务 #${tid}`,'ok');
+}
 function renderLoadTab(){
   const p=$('sbPanel');let h='';
-  h+=`<div class="title">模板 (内置)</div>`;
-  (loadList.presets||[]).forEach(w=>{h+=`<div class="sb-item loadit" data-n="${esc(w.name)}" title="点击加载"><span>★ ${esc(w.name)}</span><small>preset</small></div>`;});
+  // 模板: 按 category 分类折叠
+  const pres=loadList.presets||[];
+  const cats={};
+  pres.forEach(w=>{const c=w.category||'其他';(cats[c]=cats[c]||[]).push(w);});
+  if(pres.length)h+=`<div class="title">模板图库 (${pres.length})</div>`;
+  Object.keys(cats).forEach(c=>{
+    h+=`<div class="cat-head" data-c="${esc(c)}"><span>▸</span>${esc(c)}<small>${cats[c].length}</small></div>`;
+    h+=`<div class="cat-body">`;
+    cats[c].forEach(w=>{h+=`<div class="sb-item loadit" data-n="${esc(w.name)}" title="点击加载"><span>★ ${esc(w.name)}</span><small>preset</small></div>`;});
+    h+=`</div></div>`;
+  });
   h+=`<div class="title">工作流 (本地)</div>`;
   (loadList.workflows||[]).forEach(w=>{h+=`<div class="sb-item loadit" data-n="${esc(w.name)}" title="点击加载"><span>${esc(w.name)}</span><small>json</small></div>`;});
-  if(!(loadList.presets||[]).length&&!(loadList.workflows||[]).length)h+=`<div class="hint">暂无</div>`;
+  if(!pres.length&&!(loadList.workflows||[]).length)h+=`<div class="hint">暂无</div>`;
   p.innerHTML=h;
+  p.querySelectorAll('.cat-head').forEach(el=>el.onclick=()=>{
+    const body=el.nextElementSibling;body.style.display=body.style.display==='none'?'':'none';
+    el.style.opacity=body.style.display==='none'?'.5':'1';});
   p.querySelectorAll('.loadit').forEach(el=>el.onclick=()=>loadByName(el.dataset.n));}
 function renderExploreTab(){
   const p=$('sbPanel');let h='';
@@ -1482,9 +1893,15 @@ function toggleSidebar(force){const hidden=force!==undefined?force:!sidebarColla
 $('sbToggle').onclick=()=>toggleSidebar();
 $('sbBar').onclick=()=>toggleSidebar(true);
 document.querySelectorAll('#sbTabs .tb').forEach(b=>b.onclick=()=>setTab(b.dataset.t));
-$('sbInterrupt').onclick=()=>{runAbort=true;runSeq++;q=[];running=false;
-  updateQueueBadge();renderQueue();setMsg('已中断执行','warn');};
-$('sbClearQueue').onclick=()=>{q=[];updateQueueBadge();renderQueue();toast('已清空队列');};
+$('sbInterrupt').onclick=()=>{runAbort=true;
+  fetch('/api/workflow/interrupt',{method:'POST'}).then(r=>r.json()).then(j=>{
+    setMsg((j&&j.ok)?'已中断当前任务并清空队列':'中断请求失败','warn');
+    if(pollTimer){clearInterval(pollTimer);pollTimer=null;}startPoll();})
+    .catch(()=>setMsg('中断请求失败','err'));};
+$('sbClearQueue').onclick=()=>{
+  fetch('/api/workflow/interrupt',{method:'POST'}).then(r=>r.json()).then(()=>{
+    if(pollTimer){clearInterval(pollTimer);pollTimer=null;}startPoll();toast('已清空待处理队列');});
+  };
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 // ── 保存 / 加载 / 清空 ───────────────────

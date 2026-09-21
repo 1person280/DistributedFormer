@@ -271,6 +271,17 @@ class CuteMamenKernel:
         self.bus.publish("kernel.request", {"topic": topic})
         return self._dispatch(plugin, event)
 
+    def feedback(self, payload: Any, target: str, *,
+                 data: Any = None) -> Optional[Dict[str, Any]]:
+        """SNN 脉冲回传/补做: 把 payload(脉冲/数据) 回传给 target 插件重新处理
+
+        复用 request 做同步请求应答(重跑一次/补算), 并把结果作为返回值供
+        调用方继续消费; 发布 kernel.feedback 事件供总线追踪。
+        """
+        event = {"topic": target, "data": payload if data is None else data}
+        self.bus.publish("kernel.feedback", {"topic": target})
+        return self.request(event)
+
     def _ctx_for(self, plugin: ExpertPlugin) -> PluginContext:
         return PluginContext(bus=self.bus,
                              working_memory=self.working_memory,

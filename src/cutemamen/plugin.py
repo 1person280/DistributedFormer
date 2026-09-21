@@ -173,6 +173,15 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def typed(category: str, content: Any) -> Dict[str, Any]:
+    """构造结构化模型输出: {"category": 类别, "content": 内容}
+
+    类别约定: spike=脉冲 / text=自然语言 / frame=帧 / audio=音频,
+    也可用任意字符串表示特殊输出。供插件直接产出结构化结果。
+    """
+    return {"category": category, "content": content}
+
+
 # ═══════════════════════════════════════════════════════════════
 # 插件上下文: on_load / on_think 收到的内核门面
 # ═══════════════════════════════════════════════════════════════
@@ -312,7 +321,7 @@ class ExpertPlugin:
             "route": self.route,
             "lifecycle": ["on_load", "on_think", "on_unload"],
             "memory_budget": int(self.memory.footprint_bytes()),
-            "min_core_version": "0.18.1",
+            "min_core_version": "0.19.0",
             "memory_levels": list(PluginMemory.LEVELS),
             "core_version": CORE_VERSION,
             "format": "CuteMamen",

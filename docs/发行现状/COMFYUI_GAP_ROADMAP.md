@@ -4,11 +4,26 @@
 本文档记录它相对真实 [ComfyUI](https://github.com/Comfy-Org/ComfyUI) 的剩余差距。
 
 > **里程碑门槛**：下面的「待补齐」项全部完成并通过验收后，即可进入正式版 **1.0.0**。
-> 当前版本：**0.18.1（更好的存档 · 预制存档走 ComfyUI 规范）**。
+> 当前版本：**0.19.0（服务端执行 · 节点库）**。
 
 ---
 
-## 〇、已完成（0.18.1）✅
+## 〇、已完成（0.19.0）✅
+
+| 能力 | 说明 |
+|---|---|
+| 服务端任务队列 | `src/deployment/task_queue.py`：提交 `POST /api/workflow/submit` 立即返回全局 `task_id`；后台单 worker 串行消费（CuteMamenKernel 非线程安全，绝不并行）；`GET /api/tasks`、`/api/tasks/<id>` 查询状态/结果/历史 |
+| 全局中断 | `POST /api/workflow/interrupt`：置位当前任务的 `stop_event`（`WorkflowEngine.run` 在节点边界检查）+ 清空待处理队列；中断以节点边界为准，已执行节点结果保留 |
+| 历史持久化 | 每个任务写入 `cache/tasks/<id>.json`（临时文件 + `os.replace` 原子写），启动 `_recover()` 恢复已完成历史 |
+| 可搜索节点库 | 节点调色板按 capability 分类折叠、支持文本过滤搜索（双击画布 / Generate 页签） |
+| 模板示例图库 | 工作流预设按用途分类浏览、一键加载 |
+| ComfyUI 原生 JSON | `export_comfy`/`import_comfy` 复用 `src/blueprint.py` 的 `to_comfy`/`from_comfy` 纯 dict 转换，前端可导入/导出与 ComfyUI 一致的 `{nodes, links}` |
+
+新增测试 `src/tests/test_task_queue.py`（6 项：提交即返 id / 状态流转 / 中断保留已执行节点 / 中断清空队列 / 历史落盘恢复 / 同步语义不变），合计 285+ 测试通过。
+
+---
+
+## 〇.1、已完成（0.18.1）✅
 
 | 能力 | 说明 |
 |---|---|
@@ -53,15 +68,15 @@
 
 按推荐实现顺序分组。
 
-### A. 服务端执行模型（最重要）
-- [ ] **真实服务端任务队列**：执行由服务端管理，返回全局 `task_id`，可查询状态/结果/历史（当前仅前端队列，无服务端持久任务）。
-- [ ] **中断/取消(Interrupt)**：提供 `/interrupt` 与全局 Interrupt 按钮，终止当前任务；当前仅前端 abort 标记。
-- [ ] **输出历史查看器**：每个任务的输出(文本/JSON/数字/图像)存入服务端历史，侧栏可回看并复用前置结果。
+### A. 服务端执行模型（✅ 已完成 0.19.0）
+- [x] **真实服务端任务队列**：执行由服务端管理，返回全局 `task_id`，可查询状态/结果/历史（`POST /api/workflow/submit` + `GET /api/tasks`、`/api/tasks/<id>`）。
+- [x] **中断/取消(Interrupt)**：`POST /api/workflow/interrupt` 终止当前任务并清空待处理队列，前端全局 Interrupt 按钮对接。
+- [x] **输出历史查看器**：每个任务状态/结果/日志存入服务端历史（`cache/tasks/<id>.json`），侧栏回看并复用前置结果。
 
-### B. 节点库与导入导出
-- [ ] **可搜索节点库**：按分类折叠、支持文本过滤、模糊搜索的完整节点调色板（当前只在双击浮层列出，且不分类/不折叠）。
-- [ ] **模板/示例图库**：内建若干可一键加载的示例工作流，按用途分类浏览。
-- [ ] **ComfyUI 原生 JSON 兼容**：导入/导出与 ComfyUI 一致的 `{nodes, links, groups}` 工作流格式，可直接互换。
+### B. 节点库与导入导出（✅ 已完成 0.19.0）
+- [x] **可搜索节点库**：按分类折叠、支持文本过滤、模糊搜索的完整节点调色板。
+- [x] **模板/示例图库**：内建若干可一键加载的示例工作流，按用途分类浏览。
+- [x] **ComfyUI 原生 JSON 兼容**：导入/导出与 ComfyUI 一致的 `{nodes, links, groups}` 工作流格式，可直接互换（复用 `src/blueprint.py` 双向转换）。
 
 ### C. 连线与交互细节
 - [ ] **边重连**：从边的两端拖出可重新连接到其它端口（当前新建连线，不改边）。
@@ -88,7 +103,7 @@
 满足 **全部** 以下条件即发布 1.0.0：
 
 1. 上面的 ⬜ 清单全部核对为 ✅。
-2. `pytest src/tests/test_workflow_ui.py`、`test_interplugin.py` 全绿。
+2. `pytest src/tests/test_workflow_ui.py`、`test_task_queue.py`、`test_interplugin.py` 全绿。
 3. `run.ps1` 一键起服→端口就绪→浏览器打开→`-Stop` 停止，手工验收通过。
 4. 一次完整 Deno 体验：加载示例工作流 → 连接 → 入队执行 → 查看输出历史 → 取消 → 保存/再加载。
 5. 版本号跨 `pyproject`/`__version__`/`CORE_VERSION`/`min_core_version` 统一更新到 `1.0.0`。

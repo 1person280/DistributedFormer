@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Web 图形界面 (v0.16.0) — dformer ui
+Web 图形界面 (v0.19.0) — dformer ui
 
 零第三方依赖的本地浏览器控制台, 复用 openai_server 的 stdlib http.server
 风格 (ThreadingHTTPServer + BaseHTTPRequestHandler), 单页 HTML/JS 内嵌,
@@ -18,11 +18,20 @@ Web 图形界面 (v0.16.0) — dformer ui
   POST /api/workflow/save      → body {name, workflow}
   POST /api/workflow/load      → body {name} → {workflow, is_preset}
 
+服务端任务队列 (v0.19.0):
+  POST /api/workflow/submit    → body {workflow, name} → {ok, task_id} 立即返回
+  GET  /api/tasks              → 任务列表 (运行中 + 已完成), 按状态/新→旧
+  GET  /api/tasks/<id>         → 单任务详情 (含 results/log/error/workflow)
+  POST /api/workflow/interrupt → 终止当前 + 清空待处理队列
+  POST /api/workflow/export_comfy → body {workflow} → ComfyUI {nodes,links,groups}
+  POST /api/workflow/import_comfy → body {wf} → 内部 {nodes,edges,groups}
+
 启动: dformer ui --host 127.0.0.1 --port 8011 --depth 1 --dim 16
 """
 
 import json
 import os
+import re
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional
@@ -31,8 +40,10 @@ import numpy as np
 
 from src.cutemamen.kernel import CuteMamenKernel, DEFAULT_PKG_DIR
 from src.deployment.workflow_ui import WorkflowEngine, WORKFLOW_PAGE
+from src.deployment.task_queue import TaskManager
+from src.blueprint import to_comfy, from_comfy
 
-_UI_VERSION = "0.16.0"
+_UI_VERSION = "0.19.0"
 
 
 def _json_default(o: Any) -> Any:
@@ -41,6 +52,16 @@ def _json_default(o: Any) -> Any:
     if isinstance(o, np.ndarray):
         return o.tolist()
     return str(o)
+
+
+def _coerce_data(s: str) -> Any:
+    """命令里 `topic: 数据` 的数据侧: 尝试 JSON 解析, 否则按字符串"""
+    if not s:
+        return None
+    try:
+        return json.loads(s)
+    except (ValueError, TypeError):
+        return s
 
 
 class UIServer:
@@ -53,14 +74,17 @@ class UIServer:
         self.started = time.time()
         self.plugins = self._build_plugins()
         self.workflow = WorkflowEngine(self.kernel)
+        self.tasks = TaskManager(self.workflow)
 
     def _build_plugins(self) -> List[Dict[str, str]]:
         from src.cutemamen.rust_coding import RustCodingPlugin
         from src.cutemamen.video_making import VideoMakingPlugin
+        from src.cutemamen.chat import ChatPlugin
 
         out = []
         for p in (RustCodingPlugin(name="ui-rust"),
-                  VideoMakingPlugin(name="ui-video")):
+                  VideoMakingPlugin(name="ui-video"),
+                  ChatPlugin(name="ui-chat")):
             self.kernel.mount(p)
             out.append({
                 "name": p.name,
@@ -85,6 +109,29 @@ class UIServer:
         except Exception as exc:  # 异常也返回给前端展示
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
+    def command(self, text: str) -> Dict[str, Any]:
+        """命令输入(回车执行): 直接文本→chat; `topic: 数据` 指定路由; /命令"""
+        text = (text or "").strip()
+        if not text:
+            return {"ok": False, "error": "空命令"}
+        low = text.lower()
+        if low in ("/help", "help", "帮助", "/?"):
+            return {"ok": True, "result": {
+                "reply": "直接输入文本→chat 模型; `topic: 数据` 指定路由;\n"
+                         "命令: /stats 统计 · /plugins 插件 · /help 帮助 · /exit 退出"}}
+        if low in ("/stats", "stats", "统计"):
+            return {"ok": True, "result": self.status()}
+        if low in ("/plugins", "plugins", "插件"):
+            return {"ok": True, "result": {"plugins": self.plugins}}
+        if low in ("/exit", "/quit", "exit", "退出"):
+            return {"ok": True, "result": {"reply": "再见"}}
+        if ":" in text:
+            topic, _, data = text.partition(":")
+            topic = topic.strip()
+            if topic and not any(ch.isspace() for ch in topic[:1]):
+                return self.think(topic, _coerce_data(data.strip()))
+        return self.think("chat", text)
+
     def benchmarks(self) -> Dict[str, Any]:
         base = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "experiments")
@@ -103,7 +150,7 @@ class UIServer:
 _PAGE = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8"><title>DistributedFormer v0.16.0 图形控制台</title>
+<meta charset="utf-8"><title>DistributedFormer v0.19.0 图形控制台</title>
 <style>
   :root{--bg:#0f1420;--card:#1a2133;--line:#2a3350;--fg:#e6ecff;--mut:#8aa0c8;
         --acc:#5b8cff;--ok:#35d07f;--warn:#ffb454;}
@@ -134,16 +181,28 @@ _PAGE = """<!DOCTYPE html>
   .kv{display:flex;gap:8px;flex-wrap:wrap}.kv span{background:#0d1220;
     border:1px solid var(--line);padding:4px 10px;border-radius:8px}
   .pill{padding:1px 8px;border-radius:10px;font-size:11px;border:1px solid var(--line)}
+  #cmdbar{display:flex;align-items:center;gap:10px;margin:0 28px;padding:8px 14px;
+    background:#0d1220;border:1px solid var(--line);border-radius:10px}
+  #cmdbar .gt{color:var(--ok);font-weight:700;font-size:16px;user-select:none}
+  #cmdbar input{flex:1;background:transparent;border:0;outline:0;color:var(--fg);
+    font:inherit;margin:0;padding:4px 0}
+  #cmdbar input::placeholder{color:var(--mut)}
+  #cmdOut{white-space:pre-wrap;margin:8px 28px 0;font-size:12px}
 </style></head>
 <body>
 <header>
-  <h1>DistributedFormer <span class="badge">v0.16.0 · 图形化</span></h1>
+  <h1>DistributedFormer <span class="badge">v0.19.0 · 图形化</span></h1>
   <nav style="display:flex;gap:8px;margin-left:8px">
     <a href="/" style="color:var(--acc);padding:2px 10px;text-decoration:none;border:1px solid var(--line);border-radius:8px">控制台</a>
     <a href="/workflow" style="color:var(--fg);padding:2px 10px;text-decoration:none;border:1px solid var(--line);border-radius:8px">工作流</a>
   </nav>
   <div class="kv" id="status"></div>
 </header>
+<div id="cmdbar"><span class="gt">›</span>
+  <input id="cmd" autocomplete="off" spellcheck="false"
+    placeholder="Type here to command · 输入指令回车执行（如 你好 / chat: 你好 / /stats /plugins /help）">
+</div>
+<pre id="cmdOut" style="max-height:120px;color:var(--ok)"></pre>
 <main>
   <div class="card">
     <h2>思考控制台 (CuteMamen 内核)</h2>
@@ -192,13 +251,25 @@ $('thinkBtn').onclick=async()=>{
   $('out').className=r.ok?'ok':'err';
   $('thinkBtn').disabled=false;
 };
+// 命令输入: 回车执行, 回显到 cmdOut
+async function runCmd(){
+  const c=$('cmd').value.trim(); if(!c)return;
+  $('cmd').value='';
+  $('cmdOut').textContent='› '+c;
+  const r=await j('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({command:c})});
+  const show=r.result!==undefined?r.result:(r.error?{error:r.error}:r);
+  $('cmdOut').textContent='› '+c+'\\n'+(typeof show==='string'?show:JSON.stringify(show,null,2));
+  $('cmdOut').className=r.ok?'ok':'err';
+}
+$('cmd').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();runCmd();}});
 loadStatus();loadBench();
 </script></body></html>
 """
 
 
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "DistributedFormerUI/0.18.1"
+    server_version = "DistributedFormerUI/0.19.0"
 
     @property
     def ui(self) -> UIServer:
@@ -243,6 +314,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "models": self.ui.workflow.list_models()})
         elif self.path == "/api/workflow/list":
             self._json(200, {"ok": True, **self.ui.workflow.list_workflows()})
+        elif self.path == "/api/tasks":
+            self._json(200, {"ok": True, "tasks": self.ui.tasks.status()})
+        elif re.fullmatch(r"/api/tasks/\d+", self.path):
+            tid = int(self.path.rsplit("/", 1)[1])
+            task = self.ui.tasks.get(tid)
+            if task is None:
+                self._json(404, {"ok": False, "error": f"任务 {tid} 不存在"})
+            else:
+                self._json(200, {"ok": True, "task": task})
         else:
             self._json(404, {"error": "not found"})
 
@@ -253,6 +333,9 @@ class _Handler(BaseHTTPRequestHandler):
             topic = payload.get("topic", "")
             data = payload.get("data")
             return self._json(200, self.ui.think(topic, data))
+        if self.path == "/api/command":
+            payload = self._read_body()
+            return self._json(200, self.ui.command(payload.get("command", "")))
         if self.path == "/api/workflow/run":
             payload = self._read_body()
             if "_bad" in payload:
@@ -269,6 +352,26 @@ class _Handler(BaseHTTPRequestHandler):
             if "_bad" in payload:
                 return self._json(400, {"ok": False, "error": payload["_bad"]})
             return self._json(200, self.ui.workflow.load(payload.get("name", "")))
+        if self.path == "/api/workflow/submit":
+            payload = self._read_body()
+            if "_bad" in payload:
+                return self._json(400, {"ok": False, "error": payload["_bad"]})
+            return self._json(200, self.ui.tasks.submit(
+                payload.get("workflow", {}), payload.get("name")))
+        if self.path == "/api/workflow/interrupt":
+            return self._json(200, self.ui.tasks.interrupt())
+        if self.path == "/api/workflow/export_comfy":
+            payload = self._read_body()
+            if "_bad" in payload:
+                return self._json(400, {"ok": False, "error": payload["_bad"]})
+            return self._json(200, {"ok": True,
+                                    "workflow": to_comfy(payload.get("workflow", {}))})
+        if self.path == "/api/workflow/import_comfy":
+            payload = self._read_body()
+            if "_bad" in payload:
+                return self._json(400, {"ok": False, "error": payload["_bad"]})
+            return self._json(200, {"ok": True,
+                                    "workflow": from_comfy(payload.get("wf", {}))})
         return self._json(404, {"error": "not found"})
 
 
